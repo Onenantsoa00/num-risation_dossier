@@ -1,0 +1,33 @@
+{
+  "name": "gestion-dossiers-frontend",
+  "version": "1.0.0",
+  "description": "Interface Quasar - Gestion dossiers ORDSEC",
+  "productName": "ORDSEC Dossiers",
+  "author": "ORDSEC",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "quasar dev",
+    "build": "quasar build",
+    "lint": "eslint -c ./eslint.config.js \"./src*/**/*.{js,cjs,mjs,vue}\""
+  },
+  "dependencies": {
+    "@quasar/extras": "^1.16.15",
+    "axios": "^1.7.9",
+    "jszip": "^3.10.1",
+    "pinia": "^2.3.0",
+    "quasar": "^2.17.6",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@quasar/app-vite": "^2.0.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "vite-plugin-checker": "^0.8.0"
+  },
+  "engines": {
+    "node": ">=18",
+    "npm": ">=6"
+  }
+}
