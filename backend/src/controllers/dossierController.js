@@ -1,9 +1,13 @@
-const fs = require('fs');
-const path = require('path');
-const archiver = require('archiver');
-const db = require('../config/db');
-const { createNotification, notifyMentions, audit } = require('../services/helpers');
-const { uploadDir } = require('../middleware/upload');
+const fs = require("fs");
+const path = require("path");
+const archiver = require("archiver");
+const db = require("../config/db");
+const {
+  createNotification,
+  notifyMentions,
+  audit,
+} = require("../services/helpers");
+const { uploadDir } = require("../middleware/upload");
 
 const DOSSIER_SELECT = `
   SELECT d.*,
@@ -22,12 +26,17 @@ async function getDossierOr404(id) {
 }
 
 function canSeeDossier(user, dossier) {
-  if (user.role === 'Admin') return true;
-  if (user.role === 'Dispatch' && dossier.id_dispatch === user.id) return true;
-  if (user.role === 'Verificateur' && dossier.id_verificateur === user.id) return true;
-  if (user.role === 'Validateur' && dossier.id_validateur === user.id) return true;
+  if (user.role === "Admin") return true;
+  if (user.role === "Dispatch" && dossier.id_dispatch === user.id) return true;
+  if (user.role === "Verificateur" && dossier.id_verificateur === user.id)
+    return true;
+  if (user.role === "Validateur" && dossier.id_validateur === user.id)
+    return true;
   // Dispatch voit aussi les retours
-  if (user.role === 'Dispatch' && ['RETOUR_DISPATCH', 'VALIDE', 'REJETE', 'ARCHIVE'].includes(dossier.statut)) {
+  if (
+    user.role === "Dispatch" &&
+    ["RETOUR_DISPATCH", "VALIDE", "REJETE", "ARCHIVE"].includes(dossier.statut)
+  ) {
     return dossier.id_dispatch === user.id;
   }
   return false;
@@ -37,16 +46,16 @@ async function list(req, res) {
   try {
     const { statut, q } = req.query;
     const params = [];
-    let where = 'WHERE 1=1';
+    let where = "WHERE 1=1";
     let i = 1;
 
-    if (req.user.role === 'Dispatch') {
+    if (req.user.role === "Dispatch") {
       where += ` AND d.id_dispatch = $${i++}`;
       params.push(req.user.id);
-    } else if (req.user.role === 'Verificateur') {
+    } else if (req.user.role === "Verificateur") {
       where += ` AND d.id_verificateur = $${i++}`;
       params.push(req.user.id);
-    } else if (req.user.role === 'Validateur') {
+    } else if (req.user.role === "Validateur") {
       where += ` AND d.id_validateur = $${i++}`;
       params.push(req.user.id);
     }
@@ -63,21 +72,21 @@ async function list(req, res) {
 
     const { rows } = await db.query(
       `${DOSSIER_SELECT} ${where} ORDER BY d.updated_at DESC`,
-      params
+      params,
     );
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur liste des dossiers' });
+    res.status(500).json({ error: "Erreur liste des dossiers" });
   }
 }
 
 async function getOne(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: 'Accès refusé' });
+      return res.status(403).json({ error: "Accès refusé" });
     }
 
     const traitements = await db.query(
@@ -87,42 +96,117 @@ async function getOne(req, res) {
        LEFT JOIN roles r ON r.id = u.id_roles
        WHERE t.id_dossier = $1
        ORDER BY t.date_traitement ASC`,
-      [dossier.id]
+      [dossier.id],
     );
 
     res.json({ ...dossier, traitements: traitements.rows });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur récupération du dossier' });
+    res.status(500).json({ error: "Erreur récupération du dossier" });
   }
 }
 
 async function create(req, res) {
   try {
-    if (!['Dispatch', 'Admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Seul le Dispatch peut importer un dossier' });
+    if (!["Dispatch", "Admin"].includes(req.user.role)) {
+      return res
+        .status(403)
+        .json({ error: "Seul le Dispatch peut importer un dossier" });
     }
 
-    const { nom, n_compte, n_be, n_soa, exo_budgetaire, commentaire, id_verificateur } = req.body;
-    if (!nom) return res.status(400).json({ error: 'Le nom du dossier est requis' });
-    if (!id_verificateur) return res.status(400).json({ error: 'Un vérificateur doit être désigné' });
-    if (!req.file) return res.status(400).json({ error: 'Le fichier du dossier est requis' });
+    const {
+      nom,
+      n_compte,
+      n_be,
+      n_soa,
+      exo_budgetaire,
+      commentaire,
+      id_verificateur,
+    } = req.body;
+    if (!nom)
+      return res.status(400).json({ error: "Le nom du dossier est requis" });
+    if (!id_verificateur)
+      return res
+        .status(400)
+        .json({ error: "Un vérificateur doit être désigné" });
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ error: "Le fichier du dossier est requis" });
 
     const verif = await db.query(
       `SELECT u.id, u.email, r.nom AS role FROM utilisateur u
        JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
-      [id_verificateur]
+      [id_verificateur],
     );
-    if (!verif.rows[0] || !['Verificateur', 'Admin'].includes(verif.rows[0].role)) {
-      return res.status(400).json({ error: 'Utilisateur vérificateur invalide' });
+    if (
+      !verif.rows[0] ||
+      !["Verificateur", "Admin"].includes(verif.rows[0].role)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Utilisateur vérificateur invalide" });
     }
+
+    // ------------------------------------------------------------
+    // Préparation du nom final du fichier
+    // ------------------------------------------------------------
+
+    const safeNom = nom
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "_")
+      .replace(/^[-_.]+|[-_.]+$/g, "")
+      .trim();
+
+    const extension = path.extname(req.file.originalname).toLowerCase();
+
+    const finalFileName = `${safeNom}${extension}`;
+
+    const tempFilePath = path.join(uploadDir, req.file.filename);
+
+    const finalFilePath = path.join(uploadDir, finalFileName);
+
+    // Ne jamais écraser un fichier existant
+    if (fs.existsSync(finalFilePath)) {
+      return res.status(409).json({
+        error: `Un fichier nommé "${finalFileName}" existe déjà.`,
+      });
+    }
+
+    // Renommage du fichier temporaire
+    await fs.promises.rename(tempFilePath, finalFilePath);
+
+    // ------------------------------------------------------------
+    // Création du dossier
+    // ------------------------------------------------------------
 
     const { rows } = await db.query(
       `INSERT INTO dossier (
-         nom, n_compte, n_be, n_soa, exo_budgetaire, commentaire,
-         fichier_original, statut, id_dispatch, id_verificateur
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,'EN_VERIFICATION',$8,$9)
-       RETURNING *`,
+     nom,
+     n_compte,
+     n_be,
+     n_soa,
+     exo_budgetaire,
+     commentaire,
+     fichier_original,
+     statut,
+     id_dispatch,
+     id_verificateur
+   )
+   VALUES (
+     $1,
+     $2,
+     $3,
+     $4,
+     $5,
+     $6,
+     $7,
+     'EN_VERIFICATION',
+     $8,
+     $9
+   )
+   RETURNING *`,
       [
         nom,
         n_compte || null,
@@ -130,10 +214,10 @@ async function create(req, res) {
         n_soa || null,
         exo_budgetaire || null,
         commentaire || null,
-        req.file.filename,
+        finalFileName,
         req.user.id,
         id_verificateur,
-      ]
+      ],
     );
 
     const dossier = rows[0];
@@ -141,22 +225,26 @@ async function create(req, res) {
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
-      [req.user.id, dossier.id, commentaire || 'Dossier importé et transmis au vérificateur']
+      [
+        req.user.id,
+        dossier.id,
+        commentaire || "Dossier importé et transmis au vérificateur",
+      ],
     );
 
     await createNotification({
       id_user: Number(id_verificateur),
       id_dossier: dossier.id,
       message: `Nouveau dossier « ${nom} » à vérifier (envoyé par ${req.user.prenoms} ${req.user.nom})`,
-      type: 'VERIFICATION',
+      type: "VERIFICATION",
     });
 
     await notifyMentions(commentaire, dossier.id, req.user);
 
     await audit({
       id_user: req.user.id,
-      action: 'CREATE_DOSSIER',
-      table_name: 'dossier',
+      action: "CREATE_DOSSIER",
+      table_name: "dossier",
       record_id: dossier.id,
       details: { nom },
       ip_address: req.ip,
@@ -165,37 +253,38 @@ async function create(req, res) {
     res.status(201).json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur création du dossier' });
+    res.status(500).json({ error: "Erreur création du dossier" });
   }
 }
 
 async function comment(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: 'Accès refusé' });
+      return res.status(403).json({ error: "Accès refusé" });
     }
 
     const { commentaire } = req.body;
     if (!commentaire?.trim()) {
-      return res.status(400).json({ error: 'Commentaire requis' });
+      return res.status(400).json({ error: "Commentaire requis" });
     }
 
     // Met à jour le commentaire courant du dossier
     await db.query(
       `UPDATE dossier SET commentaire = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-      [commentaire, dossier.id]
+      [commentaire, dossier.id],
     );
 
-    let type = 'VERIFICATION';
-    if (req.user.role === 'Validateur' || req.user.role === 'Admin') type = 'VALIDATION';
-    if (req.user.role === 'Dispatch') type = 'DISPATCH';
+    let type = "VERIFICATION";
+    if (req.user.role === "Validateur" || req.user.role === "Admin")
+      type = "VALIDATION";
+    if (req.user.role === "Dispatch") type = "DISPATCH";
 
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, dossier.id, type, commentaire, dossier.statut]
+      [req.user.id, dossier.id, type, commentaire, dossier.statut],
     );
 
     await notifyMentions(commentaire, dossier.id, req.user);
@@ -203,35 +292,43 @@ async function comment(req, res) {
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur commentaire' });
+    res.status(500).json({ error: "Erreur commentaire" });
   }
 }
 
 async function sendToValidateur(req, res) {
   try {
-    if (!['Verificateur', 'Admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Action réservée au vérificateur' });
+    if (!["Verificateur", "Admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Action réservée au vérificateur" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
-    if (req.user.role !== 'Admin' && dossier.id_verificateur !== req.user.id) {
-      return res.status(403).json({ error: 'Ce dossier ne vous est pas assigné' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (req.user.role !== "Admin" && dossier.id_verificateur !== req.user.id) {
+      return res
+        .status(403)
+        .json({ error: "Ce dossier ne vous est pas assigné" });
     }
-    if (!['EN_VERIFICATION', 'RETOUR_DISPATCH'].includes(dossier.statut) && req.user.role !== 'Admin') {
-      return res.status(400).json({ error: 'Statut incompatible pour l\'envoi en validation' });
+    if (
+      !["EN_VERIFICATION", "RETOUR_DISPATCH"].includes(dossier.statut) &&
+      req.user.role !== "Admin"
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Statut incompatible pour l'envoi en validation" });
     }
 
     const { id_validateur, commentaire } = req.body;
-    if (!id_validateur) return res.status(400).json({ error: 'Un validateur doit être désigné' });
+    if (!id_validateur)
+      return res.status(400).json({ error: "Un validateur doit être désigné" });
 
     const val = await db.query(
       `SELECT u.id, r.nom AS role FROM utilisateur u
        JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
-      [id_validateur]
+      [id_validateur],
     );
-    if (!val.rows[0] || !['Validateur', 'Admin'].includes(val.rows[0].role)) {
-      return res.status(400).json({ error: 'Utilisateur validateur invalide' });
+    if (!val.rows[0] || !["Validateur", "Admin"].includes(val.rows[0].role)) {
+      return res.status(400).json({ error: "Utilisateur validateur invalide" });
     }
 
     await db.query(
@@ -241,20 +338,24 @@ async function sendToValidateur(req, res) {
          statut = 'EN_VALIDATION',
          updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
-      [id_validateur, commentaire || null, dossier.id]
+      [id_validateur, commentaire || null, dossier.id],
     );
 
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, 'VERIFICATION', $3, 'EN_VALIDATION')`,
-      [req.user.id, dossier.id, commentaire || 'Dossier transmis au validateur']
+      [
+        req.user.id,
+        dossier.id,
+        commentaire || "Dossier transmis au validateur",
+      ],
     );
 
     await createNotification({
       id_user: Number(id_validateur),
       id_dossier: dossier.id,
       message: `Dossier « ${dossier.nom} » à valider (envoyé par ${req.user.prenoms} ${req.user.nom})`,
-      type: 'VALIDATION',
+      type: "VALIDATION",
     });
 
     await notifyMentions(commentaire, dossier.id, req.user);
@@ -262,33 +363,37 @@ async function sendToValidateur(req, res) {
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur envoi au validateur' });
+    res.status(500).json({ error: "Erreur envoi au validateur" });
   }
 }
 
 async function decide(req, res) {
   try {
-    if (!['Validateur', 'Admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Action réservée au validateur' });
+    if (!["Validateur", "Admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Action réservée au validateur" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
-    if (req.user.role !== 'Admin' && dossier.id_validateur !== req.user.id) {
-      return res.status(403).json({ error: 'Ce dossier ne vous est pas assigné' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (req.user.role !== "Admin" && dossier.id_validateur !== req.user.id) {
+      return res
+        .status(403)
+        .json({ error: "Ce dossier ne vous est pas assigné" });
     }
 
     const { action, commentaire } = req.body;
-    if (!['valider', 'rejeter'].includes(action)) {
-      return res.status(400).json({ error: 'action doit être valider ou rejeter' });
+    if (!["valider", "rejeter"].includes(action)) {
+      return res
+        .status(400)
+        .json({ error: "action doit être valider ou rejeter" });
     }
     if (!commentaire?.trim()) {
-      return res.status(400).json({ error: 'Un commentaire est requis' });
+      return res.status(400).json({ error: "Un commentaire est requis" });
     }
 
-    const isValide = action === 'valider';
-    const statut = isValide ? 'VALIDE' : 'REJETE';
-    const typeTraitement = isValide ? 'VALIDATION' : 'REJET';
+    const isValide = action === "valider";
+    const statut = isValide ? "VALIDE" : "REJETE";
+    const typeTraitement = isValide ? "VALIDATION" : "REJET";
 
     await db.query(
       `UPDATE dossier SET
@@ -298,13 +403,13 @@ async function decide(req, res) {
          rejet = $4,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = $5`,
-      [commentaire, statut, isValide, !isValide, dossier.id]
+      [commentaire, statut, isValide, !isValide, dossier.id],
     );
 
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, dossier.id, typeTraitement, commentaire, statut]
+      [req.user.id, dossier.id, typeTraitement, commentaire, statut],
     );
 
     // Retour au dispatch + notification
@@ -312,8 +417,8 @@ async function decide(req, res) {
       await createNotification({
         id_user: dossier.id_dispatch,
         id_dossier: dossier.id,
-        message: `Dossier « ${dossier.nom} » ${isValide ? 'validé' : 'rejeté'} — retour Dispatch`,
-        type: isValide ? 'VALIDATION' : 'REJET',
+        message: `Dossier « ${dossier.nom} » ${isValide ? "validé" : "rejeté"} — retour Dispatch`,
+        type: isValide ? "VALIDATION" : "REJET",
       });
     }
 
@@ -323,11 +428,11 @@ async function decide(req, res) {
         `INSERT INTO archive (id_dossier, archive_par, motif)
          VALUES ($1, $2, $3)
          ON CONFLICT (id_dossier) DO NOTHING`,
-        [dossier.id, req.user.id, commentaire]
+        [dossier.id, req.user.id, commentaire],
       );
       await db.query(
         `UPDATE dossier SET statut = 'ARCHIVE', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [dossier.id]
+        [dossier.id],
       );
     }
 
@@ -335,8 +440,8 @@ async function decide(req, res) {
 
     await audit({
       id_user: req.user.id,
-      action: isValide ? 'VALIDER_DOSSIER' : 'REJETER_DOSSIER',
-      table_name: 'dossier',
+      action: isValide ? "VALIDER_DOSSIER" : "REJETER_DOSSIER",
+      table_name: "dossier",
       record_id: dossier.id,
       ip_address: req.ip,
     });
@@ -344,84 +449,86 @@ async function decide(req, res) {
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur décision dossier' });
+    res.status(500).json({ error: "Erreur décision dossier" });
   }
 }
 
 async function adminAction(req, res) {
   try {
-    if (req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Réservé à l\'admin' });
+    if (req.user.role !== "Admin") {
+      return res.status(403).json({ error: "Réservé à l'admin" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
     const { action, commentaire, id_verificateur, id_validateur } = req.body;
     if (!commentaire?.trim()) {
-      return res.status(400).json({ error: 'Commentaire requis' });
+      return res.status(400).json({ error: "Commentaire requis" });
     }
 
-    if (action === 'verifier') {
+    if (action === "verifier") {
       const verifId = id_verificateur || dossier.id_verificateur;
       await db.query(
         `UPDATE dossier SET commentaire = $1, statut = 'EN_VERIFICATION',
            id_verificateur = COALESCE($2, id_verificateur), updated_at = CURRENT_TIMESTAMP
          WHERE id = $3`,
-        [commentaire, verifId, dossier.id]
+        [commentaire, verifId, dossier.id],
       );
       await db.query(
         `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
          VALUES ($1, $2, 'VERIFICATION', $3, 'EN_VERIFICATION')`,
-        [req.user.id, dossier.id, commentaire]
+        [req.user.id, dossier.id, commentaire],
       );
       if (verifId) {
         await createNotification({
           id_user: Number(verifId),
           id_dossier: dossier.id,
           message: `Admin : dossier « ${dossier.nom} » en vérification`,
-          type: 'VERIFICATION',
+          type: "VERIFICATION",
         });
       }
-    } else if (action === 'valider' || action === 'rejeter') {
+    } else if (action === "valider" || action === "rejeter") {
       req.body.action = action;
       return decide(req, res);
     } else {
-      return res.status(400).json({ error: 'action invalide (verifier|valider|rejeter)' });
+      return res
+        .status(400)
+        .json({ error: "action invalide (verifier|valider|rejeter)" });
     }
 
     await notifyMentions(commentaire, dossier.id, req.user);
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur action admin' });
+    res.status(500).json({ error: "Erreur action admin" });
   }
 }
 
 async function returnToDispatch(req, res) {
   try {
-    if (!['Validateur', 'Verificateur', 'Admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Accès refusé' });
+    if (!["Validateur", "Verificateur", "Admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Accès refusé" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
     const { commentaire } = req.body;
     if (!commentaire?.trim()) {
-      return res.status(400).json({ error: 'Commentaire requis' });
+      return res.status(400).json({ error: "Commentaire requis" });
     }
 
     await db.query(
       `UPDATE dossier SET commentaire = $1, statut = 'RETOUR_DISPATCH', updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
-      [commentaire, dossier.id]
+      [commentaire, dossier.id],
     );
 
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, 'RETOUR', $3, 'RETOUR_DISPATCH')`,
-      [req.user.id, dossier.id, commentaire]
+      [req.user.id, dossier.id, commentaire],
     );
 
     if (dossier.id_dispatch) {
@@ -429,7 +536,7 @@ async function returnToDispatch(req, res) {
         id_user: dossier.id_dispatch,
         id_dossier: dossier.id,
         message: `Dossier « ${dossier.nom} » retourné au Dispatch`,
-        type: 'DOSSIER',
+        type: "DOSSIER",
       });
     }
 
@@ -437,16 +544,16 @@ async function returnToDispatch(req, res) {
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur retour dispatch' });
+    res.status(500).json({ error: "Erreur retour dispatch" });
   }
 }
 
 async function exportDossier(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: 'Accès refusé' });
+      return res.status(403).json({ error: "Accès refusé" });
     }
 
     const traitements = await db.query(
@@ -455,19 +562,25 @@ async function exportDossier(req, res) {
        JOIN utilisateur u ON u.id = t.id_users
        WHERE t.id_dossier = $1
        ORDER BY t.date_traitement ASC`,
-      [dossier.id]
+      [dossier.id],
     );
 
-    const safeName = (dossier.nom || `dossier_${dossier.id}`).replace(/[^a-zA-Z0-9._\-\s]/g, '_');
+    const safeName = (dossier.nom || `dossier_${dossier.id}`).replace(
+      /[^a-zA-Z0-9._\-\s]/g,
+      "_",
+    );
     const zipName = `${safeName}.zip`;
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipName)}"`);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(zipName)}"`,
+    );
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    archive.on('error', (err) => {
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
       console.error(err);
-      if (!res.headersSent) res.status(500).json({ error: 'Erreur export' });
+      if (!res.headersSent) res.status(500).json({ error: "Erreur export" });
     });
     archive.pipe(res);
 
@@ -493,23 +606,25 @@ async function exportDossier(req, res) {
       })),
     };
 
-    archive.append(JSON.stringify(meta, null, 2), { name: 'commentaires.json' });
+    archive.append(JSON.stringify(meta, null, 2), {
+      name: "commentaires.json",
+    });
     archive.append(
       [
         `Dossier: ${dossier.nom}`,
         `Statut: ${dossier.statut}`,
-        `N° compte: ${dossier.n_compte || '-'}`,
-        `N° BE: ${dossier.n_be || '-'}`,
-        `N° SOA: ${dossier.n_soa || '-'}`,
-        `Exercice: ${dossier.exo_budgetaire || '-'}`,
-        '',
-        '=== HISTORIQUE DES COMMENTAIRES ===',
+        `N° compte: ${dossier.n_compte || "-"}`,
+        `N° BE: ${dossier.n_be || "-"}`,
+        `N° SOA: ${dossier.n_soa || "-"}`,
+        `Exercice: ${dossier.exo_budgetaire || "-"}`,
+        "",
+        "=== HISTORIQUE DES COMMENTAIRES ===",
         ...traitements.rows.map(
           (t) =>
-            `[${t.date_traitement?.toISOString?.() || t.date_traitement}] ${t.type_traitement} — ${t.prenoms} ${t.nom}\n${t.commentaire || ''}\n`
+            `[${t.date_traitement?.toISOString?.() || t.date_traitement}] ${t.type_traitement} — ${t.prenoms} ${t.nom}\n${t.commentaire || ""}\n`,
         ),
-      ].join('\n'),
-      { name: 'commentaires.txt' }
+      ].join("\n"),
+      { name: "commentaires.txt" },
     );
 
     if (dossier.fichier_original) {
@@ -522,28 +637,30 @@ async function exportDossier(req, res) {
     await archive.finalize();
   } catch (err) {
     console.error(err);
-    if (!res.headersSent) res.status(500).json({ error: 'Erreur exportation' });
+    if (!res.headersSent) res.status(500).json({ error: "Erreur exportation" });
   }
 }
 
 async function downloadFile(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: 'Dossier introuvable' });
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
     if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: 'Accès refusé' });
+      return res.status(403).json({ error: "Accès refusé" });
     }
     if (!dossier.fichier_original) {
-      return res.status(404).json({ error: 'Aucun fichier' });
+      return res.status(404).json({ error: "Aucun fichier" });
     }
     const filePath = path.join(uploadDir, dossier.fichier_original);
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Fichier introuvable sur le serveur' });
+      return res
+        .status(404)
+        .json({ error: "Fichier introuvable sur le serveur" });
     }
     res.download(filePath, dossier.fichier_original);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur téléchargement' });
+    res.status(500).json({ error: "Erreur téléchargement" });
   }
 }
 
