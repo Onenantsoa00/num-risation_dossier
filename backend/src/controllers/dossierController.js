@@ -1,3 +1,4 @@
+//backend/src/controllers/dossierController.js
 const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
@@ -30,6 +31,9 @@ function canSeeDossier(user, dossier) {
   if (user.role === "Dispatch" && dossier.id_dispatch === user.id) return true;
   if (user.role === "Verificateur" && dossier.id_verificateur === user.id)
     return true;
+  if (user.role === "i_archive" && dossier.statut === "VALIDE") {
+    return true;
+  }
   if (user.role === "Validateur" && dossier.id_validateur === user.id)
     return true;
   // Dispatch voit aussi les retours
@@ -58,6 +62,8 @@ async function list(req, res) {
     } else if (req.user.role === "Validateur") {
       where += ` AND d.id_validateur = $${i++}`;
       params.push(req.user.id);
+    } else if (req.user.role === "i_archive") {
+      where += ` AND d.statut = 'VALIDE'`;
     }
 
     if (statut) {
@@ -78,6 +84,110 @@ async function list(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur liste des dossiers" });
+  }
+}
+
+async function archiveDossier(req, res) {
+  try {
+    if (req.user.role !== "i_archive" && req.user.role !== "Admin") {
+      return res.status(403).json({
+        error: "Action réservée au service d'archivage",
+      });
+    }
+
+    const dossierId = req.params.id;
+
+    const dossierResult = await db.query(
+      `SELECT *
+       FROM dossier
+       WHERE id = $1`,
+      [dossierId],
+    );
+
+    const dossier = dossierResult.rows[0];
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
+    }
+
+    if (dossier.statut !== "VALIDE") {
+      return res.status(400).json({
+        error: "Seul un dossier validé peut être archivé.",
+      });
+    }
+
+    const { compte_pc, date_fin_dossier, ref_ecriture, motif } = req.body;
+
+    if (!compte_pc?.trim()) {
+      return res.status(400).json({
+        error: "Le compte PC est obligatoire.",
+      });
+    }
+
+    if (!date_fin_dossier) {
+      return res.status(400).json({
+        error: "La date de fin du dossier est obligatoire.",
+      });
+    }
+
+    if (!ref_ecriture?.trim()) {
+      return res.status(400).json({
+        error: "La référence d'écriture est obligatoire.",
+      });
+    }
+
+    const client = await db.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `UPDATE dossier
+         SET
+           compte_pc = $1,
+           date_fin_dossier = $2,
+           ref_ecriture = $3,
+           statut = 'ARCHIVE',
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [compte_pc.trim(), date_fin_dossier, ref_ecriture.trim(), dossierId],
+      );
+
+      await client.query(
+        `INSERT INTO archive (
+           id_dossier,
+           archive_par,
+           motif
+         )
+         VALUES ($1, $2, $3)
+         ON CONFLICT (id_dossier)
+         DO UPDATE SET
+           archive_par = EXCLUDED.archive_par,
+           date_archivage = CURRENT_TIMESTAMP,
+           motif = EXCLUDED.motif`,
+        [dossierId, req.user.id, motif?.trim() || null],
+      );
+
+      await client.query("COMMIT");
+
+      res.json({
+        success: true,
+        message: "Dossier archivé définitivement.",
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: "Erreur lors de l'archivage",
+    });
   }
 }
 
@@ -192,7 +302,10 @@ async function create(req, res) {
      fichier_original,
      statut,
      id_dispatch,
-     id_verificateur
+     id_verificateur,compte_pc,
+date_fin_dossier,
+ref_ecriture,
+     
    )
    VALUES (
      $1,
@@ -204,7 +317,10 @@ async function create(req, res) {
      $7,
      'EN_VERIFICATION',
      $8,
-     $9
+     $9,
+     $10,
+     $11,
+     $12,
    )
    RETURNING *`,
       [
@@ -217,6 +333,9 @@ async function create(req, res) {
         finalFileName,
         req.user.id,
         id_verificateur,
+        compte_pc || null,
+        date_fin_dossier || null,
+        ref_ecriture || null,
       ],
     );
 
@@ -397,12 +516,15 @@ async function decide(req, res) {
 
     await db.query(
       `UPDATE dossier SET
-         commentaire = $1,
-         statut = $2,
-         validation = $3,
-         rejet = $4,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5`,
+        commentaire = $1,
+        statut = $2,
+        validation = $3,
+        rejet = $4,
+        compte_pc = NULL,
+        date_fin_dossier = NULL,
+        ref_ecriture = NULL,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5`,
       [commentaire, statut, isValide, !isValide, dossier.id],
     );
 
@@ -422,18 +544,26 @@ async function decide(req, res) {
       });
     }
 
-    // Archivage automatique si validé
+    // ------------------------------------------------------------
+    // DOSSIER VALIDÉ → NOTIFICATION DU SERVICE I_ARCHIVE
+    // ------------------------------------------------------------
     if (isValide) {
-      await db.query(
-        `INSERT INTO archive (id_dossier, archive_par, motif)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (id_dossier) DO NOTHING`,
-        [dossier.id, req.user.id, commentaire],
+      const archiveUsers = await db.query(
+        `SELECT u.id
+     FROM utilisateur u
+     JOIN roles r ON r.id = u.id_roles
+     WHERE LOWER(r.nom) = LOWER($1)`,
+        ["i_archive"],
       );
-      await db.query(
-        `UPDATE dossier SET statut = 'ARCHIVE', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-        [dossier.id],
-      );
+
+      for (const archiveUser of archiveUsers.rows) {
+        await createNotification({
+          id_user: archiveUser.id,
+          id_dossier: dossier.id,
+          message: `Le dossier « ${dossier.nom} » est validé et attend son archivage.`,
+          type: "DOSSIER",
+        });
+      }
     }
 
     await notifyMentions(commentaire, dossier.id, req.user);
@@ -708,21 +838,24 @@ async function reuploadVersion(req, res) {
      */
     const { rows } = await db.query(
       `UPDATE dossier
-       SET
-         nom = $1,
-         n_compte = $2,
-         n_be = $3,
-         n_soa = $4,
-         exo_budgetaire = $5,
-         fichier_original = $6,
-         version = $7,
-         id_verificateur = $8,
-         statut = 'EN_VERIFICATION',
-         validation = FALSE,
-         rejet = FALSE,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = $9
-       RETURNING *`,
+   SET
+     nom = $1,
+     n_compte = $2,
+     n_be = $3,
+     n_soa = $4,
+     exo_budgetaire = $5,
+     compte_pc = NULL,
+     date_fin_dossier = NULL,
+     ref_ecriture = NULL,
+     fichier_original = $6,
+     version = $7,
+     id_verificateur = $8,
+     statut = 'EN_VERIFICATION',
+     validation = FALSE,
+     rejet = FALSE,
+     updated_at = CURRENT_TIMESTAMP
+   WHERE id = $9
+   RETURNING *`,
       [
         versionedName,
         n_compte.trim(),
@@ -955,4 +1088,5 @@ module.exports = {
   reuploadVersion,
   exportDossier,
   downloadFile,
+  archiveDossier,
 };

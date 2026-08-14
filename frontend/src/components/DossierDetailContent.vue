@@ -1,3 +1,4 @@
+<!-- frontend/src/dossierDetailContent/DossierDetailContent.vue : -->
 <template>
   <div v-if="dossier" class="dossier-detail-content">
     <DossierSplitLayout mode="preview">
@@ -11,9 +12,68 @@
         />
       </template>
 
+      <template v-if="canArchive">
+        <q-banner class="bg-green-1 text-positive q-mb-md" rounded>
+          <template #avatar>
+            <q-icon name="inventory_2" />
+          </template>
+
+          Ce dossier a été validé par le validateur. Complétez les informations
+          d'archivage pour le clôturer définitivement.
+        </q-banner>
+
+        <div class="text-subtitle2 text-weight-bold q-mb-md">
+          Informations d'archivage
+        </div>
+
+        <q-input
+          v-model="archiveForm.compte_pc"
+          label="Compte PC *"
+          outlined
+          maxlength="15"
+          class="q-mb-md"
+        />
+
+        <q-input
+          v-model="archiveForm.date_fin_dossier"
+          label="Date fin du dossier *"
+          type="date"
+          outlined
+          class="q-mb-md"
+        />
+
+        <q-input
+          v-model="archiveForm.ref_ecriture"
+          label="Réf. écriture *"
+          outlined
+          maxlength="15"
+          class="q-mb-md"
+        />
+
+        <q-input
+          v-model="archiveForm.motif"
+          label="Motif / observation"
+          type="textarea"
+          outlined
+          autogrow
+          class="q-mb-md"
+        />
+
+        <q-btn
+          color="positive"
+          icon="archive"
+          label="Archiver définitivement"
+          class="full-width q-mb-md"
+          unelevated
+          :loading="archiveLoading"
+          @click="archiveDossier"
+        />
+
+        <q-separator class="q-my-md" />
+      </template>
+
       <template #right>
         <div class="surface-card sticky-panel">
-          <!-- HEADER -->
           <div class="row items-center justify-between q-mb-md">
             <div>
               <div class="text-h6 text-weight-bold">
@@ -422,6 +482,74 @@ const newVersionVerifier = ref(null);
 const reuploadLoading = ref(false);
 
 const verificateurs = ref([]);
+
+const archiveLoading = ref(false);
+
+const archiveForm = ref({
+  compte_pc: "",
+  date_fin_dossier: "",
+  ref_ecriture: "",
+  motif: "",
+});
+
+const canArchive = computed(() => {
+  if (!dossier.value) return false;
+
+  return auth.role === "i_archive" && dossier.value.statut === "VALIDE";
+});
+
+async function archiveDossier() {
+  if (!archiveForm.value.compte_pc.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "Le compte PC est obligatoire.",
+    });
+    return;
+  }
+
+  if (!archiveForm.value.date_fin_dossier) {
+    $q.notify({
+      type: "negative",
+      message: "La date de fin du dossier est obligatoire.",
+    });
+    return;
+  }
+
+  if (!archiveForm.value.ref_ecriture.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "La référence d'écriture est obligatoire.",
+    });
+    return;
+  }
+
+  archiveLoading.value = true;
+
+  try {
+    await api.post(`/archives/${props.dossierId}/archive`, archiveForm.value);
+
+    $q.notify({
+      type: "positive",
+      message: "Dossier archivé définitivement.",
+    });
+
+    archiveForm.value = {
+      compte_pc: "",
+      date_fin_dossier: "",
+      ref_ecriture: "",
+      motif: "",
+    };
+
+    await load();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur lors de l'archivage.",
+    });
+  } finally {
+    archiveLoading.value = false;
+  }
+}
 
 async function loadVerificateurs() {
   const { data } = await api.get("/users", {
