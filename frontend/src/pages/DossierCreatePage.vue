@@ -4,18 +4,17 @@
       <div>
         <h1 class="page-title">Importer un dossier</h1>
         <p class="page-sub">
-          Importez le dossier, renseignez ses informations puis assignez-le à un vérificateur.
+          Importez le dossier, renseignez ses informations puis assignez-le à un
+          vérificateur.
         </p>
       </div>
     </div>
 
     <div class="create-workspace">
-
       <!-- =========================
            COLONNE GAUCHE : APERÇU
            ========================= -->
       <section class="preview-panel">
-
         <div class="panel-header">
           <div>
             <div class="panel-title">
@@ -40,20 +39,14 @@
         </div>
 
         <div class="preview-container">
-          <DossierFilePreview
-            :file="fichier"
-            :can-download="false"
-          />
+          <DossierFilePreview :file="fichier" :can-download="false" />
         </div>
-
       </section>
-
 
       <!-- =========================
            COLONNE DROITE : FORMULAIRE
            ========================= -->
       <section class="form-panel">
-
         <div class="panel-header">
           <div>
             <div class="panel-title">
@@ -67,70 +60,42 @@
           </div>
         </div>
 
-        <q-form
-          @submit.prevent="submit"
-          class="form-content"
-        >
-
+        <q-form @submit.prevent="submit" class="form-content">
           <!-- NOM -->
           <q-input
-            v-model="form.nom"
-            label="Nom du dossier *"
+            :model-value="nomDossier"
+            label="Nom du dossier"
             outlined
-            dense
-            :rules="[v => !!v || 'Le nom du dossier est requis']"
+            readonly
           />
 
           <!-- INFORMATIONS -->
-          <div class="form-section-title">
-            Informations administratives
-          </div>
+          <div class="form-section-title">Informations administratives</div>
 
           <div class="row q-col-gutter-md">
+            <div class="col-12 col-sm-6">
+              <q-input v-model="nCompte" label="N° compte" outlined />
+            </div>
 
             <div class="col-12 col-sm-6">
-              <q-input
-                v-model="form.n_compte"
-                label="N° compte"
-                outlined
-                dense
-              />
+              <q-input v-model="nBe" label="N° BE" outlined />
+            </div>
+
+            <div class="col-12 col-sm-6">
+              <q-input v-model="nSoa" label="N° SOA" outlined />
             </div>
 
             <div class="col-12 col-sm-6">
               <q-input
-                v-model="form.n_be"
-                label="N° BE"
-                outlined
-                dense
-              />
-            </div>
-
-            <div class="col-12 col-sm-6">
-              <q-input
-                v-model="form.n_soa"
-                label="N° SOA"
-                outlined
-                dense
-              />
-            </div>
-
-            <div class="col-12 col-sm-6">
-              <q-input
-                v-model="form.exo_budgetaire"
+                v-model="exoBudgetaire"
                 label="Exercice budgétaire"
                 outlined
-                dense
               />
             </div>
-
           </div>
-
 
           <!-- FICHIER -->
-          <div class="form-section-title">
-            Fichier du dossier
-          </div>
+          <div class="form-section-title">Fichier du dossier</div>
 
           <q-file
             v-model="fichier"
@@ -138,7 +103,7 @@
             outlined
             dense
             accept=".pdf,.doc,.docx,.zip,.png,.jpg,.jpeg,.xls,.xlsx,.txt"
-            :rules="[v => !!v || 'Le fichier est requis']"
+            :rules="[(v) => !!v || 'Le fichier est requis']"
             clearable
           >
             <template #prepend>
@@ -150,11 +115,8 @@
             </template>
           </q-file>
 
-
           <!-- VERIFICATEUR -->
-          <div class="form-section-title">
-            Attribution
-          </div>
+          <div class="form-section-title">Attribution</div>
 
           <q-select
             v-model="form.id_verificateur"
@@ -166,13 +128,12 @@
             map-options
             use-input
             input-debounce="200"
-            :rules="[v => !!v || 'Veuillez sélectionner un vérificateur']"
+            :rules="[(v) => !!v || 'Veuillez sélectionner un vérificateur']"
           >
             <template #prepend>
               <q-icon name="person_search" />
             </template>
           </q-select>
-
 
           <!-- COMMENTAIRE -->
           <q-input
@@ -184,13 +145,8 @@
             autogrow
           />
 
-
           <!-- ERREUR -->
-          <q-banner
-            v-if="error"
-            class="bg-red-1 text-negative"
-            rounded
-          >
+          <q-banner v-if="error" class="bg-red-1 text-negative" rounded>
             <template #avatar>
               <q-icon name="error" />
             </template>
@@ -198,15 +154,9 @@
             {{ error }}
           </q-banner>
 
-
           <!-- ACTIONS -->
           <div class="form-actions">
-
-            <q-btn
-              flat
-              label="Annuler"
-              :to="{ name: 'dossiers' }"
-            />
+            <q-btn flat label="Annuler" :to="{ name: 'dossiers' }" />
 
             <q-btn
               type="submit"
@@ -217,150 +167,199 @@
               :loading="loading"
               :disable="!fichier"
             />
-
           </div>
-
         </q-form>
-
       </section>
-
     </div>
   </q-page>
 </template>
 
-
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { useQuasar } from 'quasar'
-import { api } from 'boot/axios'
+import { computed, onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
+import { useQuasar } from "quasar";
+import { api } from "boot/axios";
 
-import DossierFilePreview from 'components/DossierFilePreview.vue'
+import DossierFilePreview from "components/DossierFilePreview.vue";
 
-const router = useRouter()
-const $q = useQuasar()
+const router = useRouter();
+const $q = useQuasar();
 
-const loading = ref(false)
-const error = ref('')
-const fichier = ref(null)
-const verificateurs = ref([])
+const loading = ref(false);
+const error = ref("");
 
+const fichier = ref(null);
+const verificateurs = ref([]);
+
+const nCompte = ref("");
+const nBe = ref("");
+const nSoa = ref("");
+const exoBudgetaire = ref("");
+
+/*
+ * Nom du dossier généré automatiquement
+ *
+ * Exemple :
+ * 100020039-10399049-0293029390-2026
+ */
+const nomDossier = computed(() => {
+  return [
+    nCompte.value.trim(),
+    nBe.value.trim(),
+    nSoa.value.trim(),
+    exoBudgetaire.value.trim(),
+  ]
+    .filter((value) => value !== "")
+    .join("-");
+});
+
+/*
+ * Informations complémentaires du formulaire
+ */
 const form = reactive({
-  nom: '',
-  n_compte: '',
-  n_be: '',
-  n_soa: '',
-  exo_budgetaire: '',
   id_verificateur: null,
-  commentaire: '',
-})
-
+  commentaire: "",
+});
 
 /*
  * Chargement des vérificateurs
  */
 onMounted(async () => {
   try {
-    const { data } = await api.get('/users', {
+    const { data } = await api.get("/users", {
       params: {
-        role: 'Verificateur',
+        role: "Verificateur",
       },
-    })
+    });
 
-    const admins = await api.get('/users', {
+    const admins = await api.get("/users", {
       params: {
-        role: 'Admin',
+        role: "Admin",
       },
-    })
+    });
 
-    const all = [
-      ...data,
-      ...admins.data,
-    ]
+    const all = [...data, ...admins.data];
 
     verificateurs.value = all.map((u) => ({
       label: `${u.prenoms} ${u.nom} (${u.email})`,
       value: u.id,
-    }))
-
+    }));
   } catch (e) {
-    console.error('Erreur chargement utilisateurs :', e)
+    console.error("Erreur chargement utilisateurs :", e);
 
     error.value =
-      e.response?.data?.error ||
-      'Impossible de charger les vérificateurs.'
+      e.response?.data?.error || "Impossible de charger les vérificateurs.";
   }
-})
-
+});
 
 /*
  * Envoi du dossier
  */
 async function submit() {
+  error.value = "";
 
+  /*
+   * Vérification du fichier
+   */
   if (!fichier.value) {
-    error.value = 'Veuillez sélectionner un fichier.'
-    return
+    error.value = "Veuillez sélectionner un fichier.";
+    return;
   }
 
-  loading.value = true
-  error.value = ''
+  /*
+   * Vérification des informations obligatoires
+   */
+  if (!nCompte.value.trim()) {
+    error.value = "Veuillez renseigner le N° compte.";
+    return;
+  }
+
+  if (!nBe.value.trim()) {
+    error.value = "Veuillez renseigner le N° BE.";
+    return;
+  }
+
+  if (!nSoa.value.trim()) {
+    error.value = "Veuillez renseigner le N° SOA.";
+    return;
+  }
+
+  if (!exoBudgetaire.value.trim()) {
+    error.value = "Veuillez renseigner l'exercice budgétaire.";
+    return;
+  }
+
+  if (!form.id_verificateur) {
+    error.value = "Veuillez sélectionner un vérificateur.";
+    return;
+  }
+
+  loading.value = true;
 
   try {
+    const fd = new FormData();
 
-    const fd = new FormData()
+    /*
+     * Nom généré automatiquement
+     */
+    fd.append("nom", nomDossier.value);
 
-    Object.entries(form).forEach(([key, value]) => {
+    /*
+     * Informations administratives
+     */
+    fd.append("n_compte", nCompte.value.trim());
+    fd.append("n_be", nBe.value.trim());
+    fd.append("n_soa", nSoa.value.trim());
+    fd.append("exo_budgetaire", exoBudgetaire.value.trim());
 
-      if (
-        value !== null &&
-        value !== undefined &&
-        value !== ''
-      ) {
-        fd.append(key, value)
-      }
+    /*
+     * Attribution
+     */
+    fd.append("id_verificateur", form.id_verificateur);
 
-    })
+    /*
+     * Commentaire
+     */
+    if (form.commentaire.trim()) {
+      fd.append("commentaire", form.commentaire.trim());
+    }
 
-    fd.append('fichier', fichier.value)
+    /*
+     * Fichier
+     */
+    fd.append("fichier", fichier.value);
 
-
-    const { data } = await api.post(
-      '/dossiers',
-      fd
-    )
-
+    /*
+     * Envoi API
+     */
+    const { data } = await api.post("/dossiers", fd);
 
     $q.notify({
-      type: 'positive',
-      message: 'Dossier importé et transmis avec succès.',
-      icon: 'check_circle',
-    })
+      type: "positive",
+      message: "Dossier importé et transmis avec succès.",
+      icon: "check_circle",
+    });
 
-
+    /*
+     * Aller vers le détail du dossier
+     */
     router.push({
-      name: 'dossier-detail',
+      name: "dossier-detail",
       params: {
         id: data.id,
       },
-    })
-
+    });
   } catch (e) {
-
-    console.error('Erreur import dossier :', e)
+    console.error("Erreur import dossier :", e);
 
     error.value =
       e.response?.data?.error ||
-      'Une erreur est survenue lors de l’import du dossier.'
-
+      "Une erreur est survenue lors de l’import du dossier.";
   } finally {
-
-    loading.value = false
-
+    loading.value = false;
   }
 }
 </script>
-
 
 <style scoped>
 .dossier-create-page {
@@ -385,7 +384,6 @@ async function submit() {
   color: #6b7280;
 }
 
-
 /* =========================
    WORKSPACE
    ========================= */
@@ -404,7 +402,6 @@ async function submit() {
   min-height: calc(100vh - 170px);
 }
 
-
 /* =========================
    PANELS
    ========================= */
@@ -421,7 +418,6 @@ async function submit() {
   flex-direction: column;
 }
 
-
 .panel-header {
   padding: 16px 20px;
 
@@ -436,7 +432,6 @@ async function submit() {
   flex-shrink: 0;
 }
 
-
 .panel-title {
   font-size: 16px;
   font-weight: 700;
@@ -445,13 +440,11 @@ async function submit() {
   align-items: center;
 }
 
-
 .panel-subtitle {
   color: #6b7280;
   font-size: 12px;
   margin-top: 3px;
 }
-
 
 /* =========================
    PREVIEW
@@ -469,7 +462,6 @@ async function submit() {
   background: #eef1f5;
 }
 
-
 /* =========================
    FORM
    ========================= */
@@ -485,7 +477,6 @@ async function submit() {
   overflow-y: auto;
 }
 
-
 .form-section-title {
   font-size: 13px;
   font-weight: 700;
@@ -496,7 +487,6 @@ async function submit() {
 
   border-bottom: 1px solid #e5e7eb;
 }
-
 
 .form-actions {
   display: flex;
@@ -512,13 +502,11 @@ async function submit() {
   margin-top: auto;
 }
 
-
 /* =========================
    RESPONSIVE
    ========================= */
 
 @media (max-width: 1000px) {
-
   .create-workspace {
     grid-template-columns: 1fr;
 
@@ -532,12 +520,9 @@ async function submit() {
   .form-panel {
     min-height: auto;
   }
-
 }
 
-
 @media (max-width: 600px) {
-
   .dossier-create-page {
     padding: 12px;
   }
@@ -561,6 +546,5 @@ async function submit() {
   .form-content {
     padding: 14px;
   }
-
 }
 </style>
