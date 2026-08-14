@@ -12,13 +12,36 @@ const { uploadDir } = require("../middleware/upload");
 
 const DOSSIER_SELECT = `
   SELECT d.*,
-    ud.nom AS dispatch_nom, ud.prenoms AS dispatch_prenoms, ud.email AS dispatch_email,
-    uv.nom AS verificateur_nom, uv.prenoms AS verificateur_prenoms, uv.email AS verificateur_email,
-    uval.nom AS validateur_nom, uval.prenoms AS validateur_prenoms, uval.email AS validateur_email
+    ud.nom AS dispatch_nom,
+    ud.prenoms AS dispatch_prenoms,
+    ud.email AS dispatch_email,
+
+    uv.nom AS verificateur_nom,
+    uv.prenoms AS verificateur_prenoms,
+    uv.email AS verificateur_email,
+
+    uval.nom AS validateur_nom,
+    uval.prenoms AS validateur_prenoms,
+    uval.email AS validateur_email,
+
+    uarch.nom AS archiveur_nom,
+    uarch.prenoms AS archiveur_prenoms,
+    uarch.email AS archiveur_email,
+    uarch.im AS archiveur_im
+
   FROM dossier d
-  LEFT JOIN utilisateur ud ON ud.id = d.id_dispatch
-  LEFT JOIN utilisateur uv ON uv.id = d.id_verificateur
-  LEFT JOIN utilisateur uval ON uval.id = d.id_validateur
+
+  LEFT JOIN utilisateur ud
+    ON ud.id = d.id_dispatch
+
+  LEFT JOIN utilisateur uv
+    ON uv.id = d.id_verificateur
+
+  LEFT JOIN utilisateur uval
+    ON uval.id = d.id_validateur
+
+  LEFT JOIN utilisateur uarch
+    ON uarch.id = d.id_archiveur
 `;
 
 async function getDossierOr404(id) {

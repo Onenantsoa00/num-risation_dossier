@@ -120,6 +120,51 @@
           </div>
 
           <!-- =========================
+     INFORMATIONS ARCHIVAGE
+     ========================= -->
+          <template v-if="auth.role === 'i_archive'">
+            <q-separator class="q-my-md" />
+
+            <div class="col-12">
+              <div class="text-subtitle2 text-weight-bold q-mb-md">
+                Informations d'archivage
+              </div>
+            </div>
+
+            <div class="col-6">
+              <div class="text-caption text-grey-7">Compte PC</div>
+
+              <div class="text-body2 text-weight-medium">
+                {{ dossier.compte_pc || "—" }}
+              </div>
+            </div>
+
+            <div class="col-6">
+              <div class="text-caption text-grey-7">Date fin du dossier</div>
+
+              <div class="text-body2 text-weight-medium">
+                {{ formatDateOnly(dossier.date_fin_dossier) }}
+              </div>
+            </div>
+
+            <div class="col-6">
+              <div class="text-caption text-grey-7">Réf. écriture</div>
+
+              <div class="text-body2 text-weight-medium">
+                {{ dossier.ref_ecriture || "—" }}
+              </div>
+            </div>
+
+            <div class="col-6">
+              <div class="text-caption text-grey-7">IM de l'archiveur</div>
+
+              <div class="text-body2 text-weight-medium">
+                {{ dossier.archiveur_im || "—" }}
+              </div>
+            </div>
+          </template>
+
+          <!-- =========================
      I_ARCHIVE
      ========================= -->
           <template v-if="canArchive">
@@ -772,6 +817,14 @@ async function reuploadVersion() {
 function formatDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleString("fr-FR");
+}
+
+function formatDateOnly(value) {
+  if (!value) return "—";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  return date.toLocaleDateString("fr-FR");
 }
 
 function actor(prenoms, nom) {
