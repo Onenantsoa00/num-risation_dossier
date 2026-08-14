@@ -249,37 +249,41 @@
           </template>
 
           <!-- =========================
-         COMMENTAIRE
-         ========================= -->
-          <div class="text-subtitle2 text-weight-bold q-mb-sm">Commentaire</div>
+     COMMENTAIRE
+========================= -->
+          <template v-if="auth.role !== 'i_archive'">
+            <div class="text-subtitle2 text-weight-bold q-mb-sm">
+              Commentaire
+            </div>
 
-          <div
-            v-if="dossier.commentaire && dossier.commentaire !== commentaire"
-            class="q-mb-sm text-body2 bg-blue-1 q-pa-sm rounded-borders"
-            style="white-space: pre-wrap"
-          >
-            {{ dossier.commentaire }}
-          </div>
+            <div
+              v-if="dossier.commentaire && dossier.commentaire !== commentaire"
+              class="q-mb-sm text-body2 bg-blue-1 q-pa-sm rounded-borders"
+              style="white-space: pre-wrap"
+            >
+              {{ dossier.commentaire }}
+            </div>
 
-          <q-input
-            v-model="commentaire"
-            type="textarea"
-            outlined
-            autogrow
-            label="Votre commentaire"
-            hint="Mentionnez @email@domaine.com"
-            class="q-mb-sm"
-          />
+            <q-input
+              v-model="commentaire"
+              type="textarea"
+              outlined
+              autogrow
+              label="Votre commentaire"
+              hint="Mentionnez @email@domaine.com"
+              class="q-mb-sm"
+            />
 
-          <q-btn
-            outline
-            color="primary"
-            label="Enregistrer"
-            class="full-width q-mb-md"
-            :loading="busy"
-            :disable="!commentaire.trim()"
-            @click="saveComment"
-          />
+            <q-btn
+              outline
+              color="primary"
+              label="Enregistrer"
+              class="full-width q-mb-md"
+              :loading="busy"
+              :disable="!commentaire.trim()"
+              @click="saveComment"
+            />
+          </template>
 
           <!-- =========================
      VERIFICATEUR
@@ -410,8 +414,9 @@
           </template>
 
           <!-- =========================
-         ACTEURS
-         ========================= -->
+     ACTEURS
+========================= -->
+
           <q-separator class="q-my-md" />
 
           <div class="text-caption text-weight-bold text-grey-7 q-mb-xs">
@@ -428,9 +433,14 @@
             {{ actor(dossier.verificateur_prenoms, dossier.verificateur_nom) }}
           </div>
 
-          <div class="text-body2">
+          <div class="text-body2 q-mb-xs">
             <span class="text-grey-7">Validateur:</span>
             {{ actor(dossier.validateur_prenoms, dossier.validateur_nom) }}
+          </div>
+
+          <div class="text-body2">
+            <span class="text-grey-7">i_archive:</span>
+            {{ actor(dossier.archiveur_prenoms, dossier.archiveur_nom) }}
           </div>
         </div>
       </template>
