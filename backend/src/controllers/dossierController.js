@@ -548,6 +548,285 @@ async function returnToDispatch(req, res) {
   }
 }
 
+async function reuploadVersion(req, res) {
+  let tempFilePath = null;
+  let finalFilePath = null;
+
+  try {
+    if (!["Dispatch", "Admin"].includes(req.user.role)) {
+      return res.status(403).json({
+        error: "Seul le Dispatch ou l'Admin peut importer une nouvelle version",
+      });
+    }
+
+    const dossier = await getDossierOr404(req.params.id);
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
+    }
+
+    if (req.user.role !== "Admin" && dossier.id_dispatch !== req.user.id) {
+      return res.status(403).json({
+        error: "Ce dossier ne vous appartient pas",
+      });
+    }
+
+    if (dossier.statut !== "RETOUR_DISPATCH") {
+      return res.status(400).json({
+        error:
+          "Une nouvelle version ne peut être importée que pour un dossier retourné au Dispatch",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        error: "Le nouveau fichier est requis",
+      });
+    }
+
+    tempFilePath = path.join(uploadDir, req.file.filename);
+
+    const { n_compte, n_be, n_soa, exo_budgetaire, id_verificateur } = req.body;
+
+    if (!n_compte?.trim()) {
+      return res.status(400).json({
+        error: "Le N° compte est requis",
+      });
+    }
+
+    if (!n_be?.trim()) {
+      return res.status(400).json({
+        error: "Le N° BE est requis",
+      });
+    }
+
+    if (!n_soa?.trim()) {
+      return res.status(400).json({
+        error: "Le N° SOA est requis",
+      });
+    }
+
+    if (!exo_budgetaire?.trim()) {
+      return res.status(400).json({
+        error: "L'exercice budgétaire est requis",
+      });
+    }
+
+    /*
+     * Le vérificateur doit rester valide.
+     * Le Dispatch peut éventuellement en sélectionner un autre.
+     */
+    const verifierId = id_verificateur || dossier.id_verificateur;
+
+    if (!verifierId) {
+      return res.status(400).json({
+        error: "Un vérificateur doit être désigné",
+      });
+    }
+
+    const verif = await db.query(
+      `SELECT u.id, u.email, r.nom AS role
+       FROM utilisateur u
+       JOIN roles r ON r.id = u.id_roles
+       WHERE u.id = $1`,
+      [verifierId],
+    );
+
+    if (
+      !verif.rows[0] ||
+      !["Verificateur", "Admin"].includes(verif.rows[0].role)
+    ) {
+      return res.status(400).json({
+        error: "Utilisateur vérificateur invalide",
+      });
+    }
+
+    /*
+     * Nouvelle version
+     */
+    const newVersion = Number(dossier.version || 1) + 1;
+
+    /*
+     * Nom de base basé sur les nouveaux champs.
+     *
+     * Exemple :
+     * 100020039-10399049-0293029390-2026
+     */
+    const baseName = [
+      n_compte.trim(),
+      n_be.trim(),
+      n_soa.trim(),
+      exo_budgetaire.trim(),
+    ]
+      .join("-")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "_")
+      .replace(/^[-_.]+|[-_.]+$/g, "")
+      .trim();
+
+    /*
+     * Pour la version 2 :
+     * 100020039-10399049-0293029390-2026(2)
+     */
+    const versionedName = `${baseName}(${newVersion})`;
+
+    /*
+     * Extension du fichier original.
+     */
+    const extension = path.extname(req.file.originalname).toLowerCase();
+
+    const finalFileName = `${versionedName}${extension}`;
+
+    finalFilePath = path.join(uploadDir, finalFileName);
+
+    /*
+     * Protection supplémentaire contre un doublon.
+     */
+    if (fs.existsSync(finalFilePath)) {
+      return res.status(409).json({
+        error: `Le fichier "${finalFileName}" existe déjà.`,
+      });
+    }
+
+    /*
+     * Renommer le fichier temporaire.
+     *
+     * L'ancien fichier n'est PAS supprimé.
+     */
+    await fs.promises.rename(tempFilePath, finalFilePath);
+
+    tempFilePath = null;
+
+    /*
+     * Mise à jour du même dossier.
+     *
+     * IMPORTANT :
+     * commentaire reste inchangé.
+     */
+    const { rows } = await db.query(
+      `UPDATE dossier
+       SET
+         nom = $1,
+         n_compte = $2,
+         n_be = $3,
+         n_soa = $4,
+         exo_budgetaire = $5,
+         fichier_original = $6,
+         version = $7,
+         id_verificateur = $8,
+         statut = 'EN_VERIFICATION',
+         validation = FALSE,
+         rejet = FALSE,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $9
+       RETURNING *`,
+      [
+        versionedName,
+        n_compte.trim(),
+        n_be.trim(),
+        n_soa.trim(),
+        exo_budgetaire.trim(),
+        finalFileName,
+        newVersion,
+        verifierId,
+        dossier.id,
+      ],
+    );
+
+    const updatedDossier = rows[0];
+
+    /*
+     * Conservation de l'historique.
+     *
+     * Le commentaire actuel du dossier n'est PAS écrasé.
+     */
+    await db.query(
+      `INSERT INTO traitement (
+         id_users,
+         id_dossier,
+         type_traitement,
+         commentaire,
+         statut
+       )
+       VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
+      [
+        req.user.id,
+        updatedDossier.id,
+        `Nouvelle version du dossier importée (version ${newVersion})`,
+      ],
+    );
+
+    /*
+     * Notification du vérificateur
+     */
+    await createNotification({
+      id_user: Number(verifierId),
+      id_dossier: updatedDossier.id,
+      message: `Nouvelle version du dossier « ${versionedName} » à vérifier`,
+      type: "VERIFICATION",
+    });
+
+    /*
+     * Audit
+     */
+    await audit({
+      id_user: req.user.id,
+      action: "REUPLOAD_DOSSIER",
+      table_name: "dossier",
+      record_id: updatedDossier.id,
+      details: {
+        ancienne_version: dossier.version,
+        nouvelle_version: newVersion,
+        ancien_fichier: dossier.fichier_original,
+        nouveau_fichier: finalFileName,
+        ancien_nom: dossier.nom,
+        nouveau_nom: versionedName,
+      },
+      ip_address: req.ip,
+    });
+
+    res.json(await getDossierOr404(updatedDossier.id));
+  } catch (err) {
+    console.error(err);
+
+    /*
+     * Si le fichier a été uploadé mais qu'une erreur
+     * survient avant son renommage, on le supprime.
+     */
+    if (tempFilePath) {
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          await fs.promises.unlink(tempFilePath);
+        }
+      } catch (cleanupError) {
+        console.error("Erreur nettoyage fichier temporaire :", cleanupError);
+      }
+    }
+
+    /*
+     * Si le fichier final existe mais que la mise à jour
+     * a échoué, on peut le supprimer afin d'éviter
+     * un fichier orphelin.
+     */
+    if (finalFilePath) {
+      try {
+        if (fs.existsSync(finalFilePath)) {
+          await fs.promises.unlink(finalFilePath);
+        }
+      } catch (cleanupError) {
+        console.error("Erreur nettoyage fichier final :", cleanupError);
+      }
+    }
+
+    res.status(500).json({
+      error: "Erreur lors de l'import de la nouvelle version",
+    });
+  }
+}
+
 async function exportDossier(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
@@ -673,6 +952,7 @@ module.exports = {
   decide,
   adminAction,
   returnToDispatch,
+  reuploadVersion,
   exportDossier,
   downloadFile,
 };

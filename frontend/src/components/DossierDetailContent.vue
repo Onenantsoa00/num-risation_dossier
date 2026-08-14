@@ -53,6 +53,25 @@
             <div class="text-subtitle2 text-weight-bold q-mb-md">
               Résumé du dossier
             </div>
+            <template v-if="canReuploadVersion">
+              <q-banner class="bg-orange-1 text-orange-10 q-mb-md" rounded>
+                <template #avatar>
+                  <q-icon name="reply" />
+                </template>
+
+                Ce dossier a été retourné par le validateur. Vous pouvez
+                importer une nouvelle version.
+              </q-banner>
+
+              <q-btn
+                color="primary"
+                icon="upload_file"
+                label="Importer une nouvelle version"
+                class="full-width q-mb-md"
+                unelevated
+                @click="openReuploadDialog"
+              />
+            </template>
 
             <div class="row q-col-gutter-md">
               <div class="col-6">
@@ -273,6 +292,94 @@
   <div v-else-if="loading" class="flex flex-center q-pa-xl">
     <q-spinner color="primary" size="40px" />
   </div>
+  <q-dialog v-model="showReuploadDialog">
+    <q-card style="width: 700px; max-width: 95vw">
+      <q-card-section>
+        <div class="text-h6">Importer une nouvelle version</div>
+
+        <div class="text-caption text-grey-7 q-mt-xs">
+          Version actuelle : {{ dossier.version }}
+        </div>
+      </q-card-section>
+
+      <q-separator />
+
+      <q-card-section>
+        <q-file
+          v-model="newVersionFile"
+          label="Nouveau fichier *"
+          outlined
+          clearable
+          accept=".pdf,.doc,.docx,.zip,.png,.jpg,.jpeg,.xls,.xlsx,.txt"
+          class="q-mb-md"
+        >
+          <template #prepend>
+            <q-icon name="attach_file" />
+          </template>
+        </q-file>
+
+        <div class="text-subtitle2 q-mb-md">
+          Nouvelles informations du dossier
+        </div>
+
+        <div class="row q-col-gutter-md">
+          <div class="col-12 col-sm-6">
+            <q-input v-model="newVersionNCompte" label="N° compte *" outlined />
+          </div>
+
+          <div class="col-12 col-sm-6">
+            <q-input v-model="newVersionNBe" label="N° BE *" outlined />
+          </div>
+
+          <div class="col-12 col-sm-6">
+            <q-input v-model="newVersionNSoa" label="N° SOA *" outlined />
+          </div>
+
+          <div class="col-12 col-sm-6">
+            <q-input
+              v-model="newVersionExoBudgetaire"
+              label="Exercice budgétaire *"
+              outlined
+            />
+          </div>
+
+          <div class="col-12">
+            <q-select
+              v-model="newVersionVerifier"
+              :options="verificateurs"
+              label="Vérificateur *"
+              outlined
+              emit-value
+              map-options
+            />
+          </div>
+        </div>
+
+        <q-banner class="bg-blue-1 text-primary q-mt-md" rounded>
+          <template #avatar>
+            <q-icon name="info" />
+          </template>
+
+          Les anciens commentaires et l'historique du dossier seront conservés.
+        </q-banner>
+      </q-card-section>
+
+      <q-separator />
+
+      <q-card-actions align="right">
+        <q-btn flat label="Annuler" v-close-popup />
+
+        <q-btn
+          color="primary"
+          label="Importer la nouvelle version"
+          icon="upload"
+          unelevated
+          :loading="reuploadLoading"
+          @click="reuploadVersion"
+        />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup>
@@ -301,6 +408,39 @@ const idValidateur = ref(null);
 const validateurs = ref([]);
 const previewUrl = ref(null);
 const previewLoading = ref(false);
+const showReuploadDialog = ref(false);
+
+const newVersionFile = ref(null);
+
+const newVersionNCompte = ref("");
+const newVersionNBe = ref("");
+const newVersionNSoa = ref("");
+const newVersionExoBudgetaire = ref("");
+
+const newVersionVerifier = ref(null);
+
+const reuploadLoading = ref(false);
+
+const verificateurs = ref([]);
+
+async function loadVerificateurs() {
+  const { data } = await api.get("/users", {
+    params: {
+      role: "Verificateur",
+    },
+  });
+
+  const admins = await api.get("/users", {
+    params: {
+      role: "Admin",
+    },
+  });
+
+  verificateurs.value = [...data, ...admins.data].map((u) => ({
+    label: `${u.prenoms} ${u.nom} (${u.email})`,
+    value: u.id,
+  }));
+}
 
 const previewMetadata = computed(() => {
   if (!dossier.value) return {};
@@ -328,6 +468,120 @@ const canDecide = computed(() => {
   if (!["Validateur", "Admin"].includes(auth.role)) return false;
   return dossier.value.statut === "EN_VALIDATION" || auth.role === "Admin";
 });
+
+const canReuploadVersion = computed(() => {
+  if (!dossier.value) return false;
+
+  if (!["Dispatch", "Admin"].includes(auth.role)) {
+    return false;
+  }
+
+  return dossier.value.statut === "RETOUR_DISPATCH";
+});
+
+function openReuploadDialog() {
+  newVersionFile.value = null;
+
+  newVersionNCompte.value = dossier.value?.n_compte || "";
+
+  newVersionNBe.value = dossier.value?.n_be || "";
+
+  newVersionNSoa.value = dossier.value?.n_soa || "";
+
+  newVersionExoBudgetaire.value = dossier.value?.exo_budgetaire || "";
+
+  newVersionVerifier.value = dossier.value?.id_verificateur || null;
+
+  showReuploadDialog.value = true;
+}
+
+async function reuploadVersion() {
+  if (!newVersionFile.value) {
+    $q.notify({
+      type: "negative",
+      message: "Veuillez sélectionner le nouveau fichier.",
+    });
+    return;
+  }
+
+  if (!newVersionNCompte.value.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "Le N° compte est requis.",
+    });
+    return;
+  }
+
+  if (!newVersionNBe.value.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "Le N° BE est requis.",
+    });
+    return;
+  }
+
+  if (!newVersionNSoa.value.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "Le N° SOA est requis.",
+    });
+    return;
+  }
+
+  if (!newVersionExoBudgetaire.value.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "L'exercice budgétaire est requis.",
+    });
+    return;
+  }
+
+  if (!newVersionVerifier.value) {
+    $q.notify({
+      type: "negative",
+      message: "Veuillez sélectionner un vérificateur.",
+    });
+    return;
+  }
+
+  reuploadLoading.value = true;
+
+  try {
+    const fd = new FormData();
+
+    fd.append("n_compte", newVersionNCompte.value.trim());
+
+    fd.append("n_be", newVersionNBe.value.trim());
+
+    fd.append("n_soa", newVersionNSoa.value.trim());
+
+    fd.append("exo_budgetaire", newVersionExoBudgetaire.value.trim());
+
+    fd.append("id_verificateur", newVersionVerifier.value);
+
+    fd.append("fichier", newVersionFile.value);
+
+    await api.post(`/dossiers/${props.dossierId}/reupload`, fd);
+
+    $q.notify({
+      type: "positive",
+      message: "Nouvelle version importée et transmise au vérificateur.",
+    });
+
+    showReuploadDialog.value = false;
+
+    await load();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message:
+        e.response?.data?.error ||
+        "Erreur lors de l'import de la nouvelle version",
+    });
+  } finally {
+    reuploadLoading.value = false;
+  }
+}
 
 function formatDate(d) {
   if (!d) return "—";
