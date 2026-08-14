@@ -31,7 +31,11 @@ function canSeeDossier(user, dossier) {
   if (user.role === "Dispatch" && dossier.id_dispatch === user.id) return true;
   if (user.role === "Verificateur" && dossier.id_verificateur === user.id)
     return true;
-  if (user.role === "i_archive" && dossier.statut === "VALIDE") {
+  if (
+    user.role === "i_archive" &&
+    ["VALIDE", "ARCHIVE"].includes(dossier.statut) &&
+    dossier.id_archiveur === user.id
+  ) {
     return true;
   }
   if (user.role === "Validateur" && dossier.id_validateur === user.id)
@@ -144,15 +148,28 @@ async function archiveDossier(req, res) {
       await client.query("BEGIN");
 
       await client.query(
-        `UPDATE dossier
-         SET
-           compte_pc = $1,
-           date_fin_dossier = $2,
-           ref_ecriture = $3,
-           statut = 'ARCHIVE',
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id = $4`,
-        [compte_pc.trim(), date_fin_dossier, ref_ecriture.trim(), dossierId],
+        `
+    UPDATE dossier
+    SET
+      commentaire = $1,
+      statut = $2,
+      validation = $3,
+      rejet = $4,
+      compte_pc = NULL,
+      date_fin_dossier = NULL,
+      ref_ecriture = NULL,
+      id_archiveur = $5,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $6
+  `,
+        [
+          commentaire,
+          statut,
+          isValide,
+          !isValide,
+          isValide ? archiveur.id : null,
+          dossier.id,
+        ],
       );
 
       await client.query(
@@ -298,14 +315,14 @@ async function create(req, res) {
      n_be,
      n_soa,
      exo_budgetaire,
+     compte_pc,
+     date_fin_dossier,
+     ref_ecriture,
      commentaire,
      fichier_original,
      statut,
      id_dispatch,
-     id_verificateur,compte_pc,
-date_fin_dossier,
-ref_ecriture,
-     
+     id_verificateur
    )
    VALUES (
      $1,
@@ -313,14 +330,14 @@ ref_ecriture,
      $3,
      $4,
      $5,
+     NULL,
+     NULL,
+     NULL,
      $6,
      $7,
      'EN_VERIFICATION',
      $8,
-     $9,
-     $10,
-     $11,
-     $12,
+     $9
    )
    RETURNING *`,
       [
@@ -333,9 +350,6 @@ ref_ecriture,
         finalFileName,
         req.user.id,
         id_verificateur,
-        compte_pc || null,
-        date_fin_dossier || null,
-        ref_ecriture || null,
       ],
     );
 
@@ -500,11 +514,42 @@ async function decide(req, res) {
         .json({ error: "Ce dossier ne vous est pas assigné" });
     }
 
-    const { action, commentaire } = req.body;
+    const { action, commentaire, id_archiveur } = req.body;
     if (!["valider", "rejeter"].includes(action)) {
       return res
         .status(400)
         .json({ error: "action doit être valider ou rejeter" });
+    }
+    if (action === "valider" && !id_archiveur) {
+      return res.status(400).json({
+        error: "Vous devez désigner un responsable d'archivage.",
+      });
+    }
+    let archiveur = null;
+
+    if (action === "valider") {
+      const archiveurResult = await db.query(
+        `
+      SELECT
+        u.id,
+        u.nom,
+        u.prenoms,
+        u.email
+      FROM utilisateur u
+      JOIN roles r ON r.id = u.id_roles
+      WHERE u.id = $1
+        AND LOWER(r.nom) = LOWER('i_archive')
+    `,
+        [id_archiveur],
+      );
+
+      archiveur = archiveurResult.rows[0];
+
+      if (!archiveur) {
+        return res.status(400).json({
+          error: "L'utilisateur sélectionné n'a pas le rôle i_archive.",
+        });
+      }
     }
     if (!commentaire?.trim()) {
       return res.status(400).json({ error: "Un commentaire est requis" });
@@ -515,17 +560,27 @@ async function decide(req, res) {
     const typeTraitement = isValide ? "VALIDATION" : "REJET";
 
     await db.query(
-      `UPDATE dossier SET
-        commentaire = $1,
-        statut = $2,
-        validation = $3,
-        rejet = $4,
-        compte_pc = NULL,
-        date_fin_dossier = NULL,
-        ref_ecriture = NULL,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5`,
-      [commentaire, statut, isValide, !isValide, dossier.id],
+      `
+    UPDATE dossier SET
+      commentaire = $1,
+      statut = $2,
+      validation = $3,
+      rejet = $4,
+      compte_pc = NULL,
+      date_fin_dossier = NULL,
+      ref_ecriture = NULL,
+      id_archiveur = $5,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $6
+  `,
+      [
+        commentaire,
+        statut,
+        isValide,
+        !isValide,
+        isValide ? archiveur.id : null,
+        dossier.id,
+      ],
     );
 
     await db.query(
@@ -543,27 +598,13 @@ async function decide(req, res) {
         type: isValide ? "VALIDATION" : "REJET",
       });
     }
-
-    // ------------------------------------------------------------
-    // DOSSIER VALIDÉ → NOTIFICATION DU SERVICE I_ARCHIVE
-    // ------------------------------------------------------------
-    if (isValide) {
-      const archiveUsers = await db.query(
-        `SELECT u.id
-     FROM utilisateur u
-     JOIN roles r ON r.id = u.id_roles
-     WHERE LOWER(r.nom) = LOWER($1)`,
-        ["i_archive"],
-      );
-
-      for (const archiveUser of archiveUsers.rows) {
-        await createNotification({
-          id_user: archiveUser.id,
-          id_dossier: dossier.id,
-          message: `Le dossier « ${dossier.nom} » est validé et attend son archivage.`,
-          type: "DOSSIER",
-        });
-      }
+    if (isValide && archiveur) {
+      await createNotification({
+        id_user: archiveur.id,
+        id_dossier: dossier.id,
+        message: `Le dossier « ${dossier.nom} » a été validé et vous est attribué pour archivage.`,
+        type: "DOSSIER",
+      });
     }
 
     await notifyMentions(commentaire, dossier.id, req.user);
@@ -982,7 +1023,28 @@ async function exportDossier(req, res) {
       "_",
     );
     const zipName = `${safeName}.zip`;
+    let archiveur = null;
 
+    if (action === "valider") {
+      const archiveurResult = await db.query(
+        `
+      SELECT u.id, u.nom, u.prenoms, u.email
+      FROM utilisateur u
+      JOIN roles r ON r.id = u.id_roles
+      WHERE u.id = $1
+        AND LOWER(r.nom) = LOWER('i_archive')
+    `,
+        [id_archiveur],
+      );
+
+      archiveur = archiveurResult.rows[0];
+
+      if (!archiveur) {
+        return res.status(400).json({
+          error: "L'utilisateur sélectionné n'a pas le rôle i_archive.",
+        });
+      }
+    }
     res.setHeader("Content-Type", "application/zip");
     res.setHeader(
       "Content-Disposition",

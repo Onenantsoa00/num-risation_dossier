@@ -12,66 +12,6 @@
         />
       </template>
 
-      <template v-if="canArchive">
-        <q-banner class="bg-green-1 text-positive q-mb-md" rounded>
-          <template #avatar>
-            <q-icon name="inventory_2" />
-          </template>
-
-          Ce dossier a été validé par le validateur. Complétez les informations
-          d'archivage pour le clôturer définitivement.
-        </q-banner>
-
-        <div class="text-subtitle2 text-weight-bold q-mb-md">
-          Informations d'archivage
-        </div>
-
-        <q-input
-          v-model="archiveForm.compte_pc"
-          label="Compte PC *"
-          outlined
-          maxlength="15"
-          class="q-mb-md"
-        />
-
-        <q-input
-          v-model="archiveForm.date_fin_dossier"
-          label="Date fin du dossier *"
-          type="date"
-          outlined
-          class="q-mb-md"
-        />
-
-        <q-input
-          v-model="archiveForm.ref_ecriture"
-          label="Réf. écriture *"
-          outlined
-          maxlength="15"
-          class="q-mb-md"
-        />
-
-        <q-input
-          v-model="archiveForm.motif"
-          label="Motif / observation"
-          type="textarea"
-          outlined
-          autogrow
-          class="q-mb-md"
-        />
-
-        <q-btn
-          color="positive"
-          icon="archive"
-          label="Archiver définitivement"
-          class="full-width q-mb-md"
-          unelevated
-          :loading="archiveLoading"
-          @click="archiveDossier"
-        />
-
-        <q-separator class="q-my-md" />
-      </template>
-
       <template #right>
         <div class="surface-card sticky-panel">
           <div class="row items-center justify-between q-mb-md">
@@ -180,6 +120,90 @@
           </div>
 
           <!-- =========================
+     I_ARCHIVE
+     ========================= -->
+          <template v-if="canArchive">
+            <q-banner class="bg-green-1 text-positive q-mb-md" rounded>
+              <template #avatar>
+                <q-icon name="inventory_2" />
+              </template>
+
+              <div class="text-weight-medium">Dossier validé</div>
+
+              <div class="text-caption q-mt-xs">
+                Complétez les informations d'archivage avant de mettre
+                définitivement le dossier en archive.
+              </div>
+            </q-banner>
+
+            <div class="text-subtitle2 text-weight-bold q-mb-md">
+              Informations d'archivage
+            </div>
+
+            <!-- Compte PC -->
+            <q-input
+              v-model="archiveForm.compte_pc"
+              label="Compte PC *"
+              outlined
+              maxlength="15"
+              class="q-mb-md"
+            >
+              <template #prepend>
+                <q-icon name="account_balance" />
+              </template>
+            </q-input>
+
+            <!-- Date fin dossier -->
+            <q-input
+              v-model="archiveForm.date_fin_dossier"
+              label="Date fin du dossier *"
+              type="date"
+              outlined
+              class="q-mb-md"
+            >
+              <template #prepend>
+                <q-icon name="event" />
+              </template>
+            </q-input>
+
+            <!-- Référence écriture -->
+            <q-input
+              v-model="archiveForm.ref_ecriture"
+              label="Référence d'écriture *"
+              outlined
+              maxlength="15"
+              class="q-mb-md"
+            >
+              <template #prepend>
+                <q-icon name="receipt_long" />
+              </template>
+            </q-input>
+
+            <!-- Motif -->
+            <q-input
+              v-model="archiveForm.motif"
+              label="Observation / motif"
+              type="textarea"
+              outlined
+              autogrow
+              class="q-mb-md"
+            />
+
+            <!-- Bouton archivage -->
+            <q-btn
+              color="positive"
+              icon="inventory_2"
+              label="Mettre en archive"
+              class="full-width q-mb-md"
+              unelevated
+              :loading="archiveLoading"
+              @click="archiveDossier"
+            />
+
+            <q-separator class="q-my-md" />
+          </template>
+
+          <!-- =========================
          COMMENTAIRE
          ========================= -->
           <div class="text-subtitle2 text-weight-bold q-mb-sm">Commentaire</div>
@@ -213,8 +237,8 @@
           />
 
           <!-- =========================
-         VERIFICATEUR
-         ========================= -->
+     VERIFICATEUR
+========================= -->
           <template v-if="canSendToValidateur">
             <q-separator class="q-mb-md" />
 
@@ -223,7 +247,7 @@
             <q-select
               v-model="idValidateur"
               :options="validateurs"
-              label="Validateur"
+              label="Validateur *"
               outlined
               dense
               emit-value
@@ -244,12 +268,30 @@
           </template>
 
           <!-- =========================
-         VALIDATEUR
-         ========================= -->
+     VALIDATEUR
+========================= -->
           <template v-if="canDecide">
             <q-separator class="q-mb-md" />
 
             <div class="text-subtitle2 q-mb-sm">Décision</div>
+
+            <!-- Responsable de l'archivage -->
+            <q-select
+              v-model="idArchiveur"
+              :options="archiveurs"
+              label="Responsable archivage *"
+              outlined
+              dense
+              emit-value
+              map-options
+              use-input
+              input-debounce="200"
+              class="q-mb-md"
+            >
+              <template #prepend>
+                <q-icon name="inventory_2" />
+              </template>
+            </q-select>
 
             <div class="row q-gutter-sm q-mb-sm">
               <q-btn
@@ -258,7 +300,7 @@
                 class="col"
                 unelevated
                 :loading="busy"
-                :disable="!commentaire.trim()"
+                :disable="!commentaire.trim() || !idArchiveur"
                 @click="decide('valider')"
               />
 
@@ -492,11 +534,27 @@ const archiveForm = ref({
   motif: "",
 });
 
+const archiveurs = ref([]);
+const idArchiveur = ref(null);
+
 const canArchive = computed(() => {
   if (!dossier.value) return false;
 
   return auth.role === "i_archive" && dossier.value.statut === "VALIDE";
 });
+
+async function loadArchiveurs() {
+  const { data } = await api.get("/users", {
+    params: {
+      role: "i_archive",
+    },
+  });
+
+  archiveurs.value = data.map((u) => ({
+    label: `${u.prenoms} ${u.nom} (${u.email})`,
+    value: u.id,
+  }));
+}
 
 async function archiveDossier() {
   if (!archiveForm.value.compte_pc.trim()) {
@@ -584,17 +642,17 @@ const previewMetadata = computed(() => {
 
 const canSendToValidateur = computed(() => {
   if (!dossier.value) return false;
-  if (!["Verificateur", "Admin"].includes(auth.role)) return false;
+
   return (
-    ["EN_VERIFICATION", "RETOUR_DISPATCH"].includes(dossier.value.statut) ||
-    auth.role === "Admin"
+    auth.role === "Verificateur" &&
+    ["EN_VERIFICATION", "RETOUR_DISPATCH"].includes(dossier.value.statut)
   );
 });
 
 const canDecide = computed(() => {
   if (!dossier.value) return false;
-  if (!["Validateur", "Admin"].includes(auth.role)) return false;
-  return dossier.value.statut === "EN_VALIDATION" || auth.role === "Admin";
+
+  return auth.role === "Validateur" && dossier.value.statut === "EN_VALIDATION";
 });
 
 const canReuploadVersion = computed(() => {
@@ -821,21 +879,49 @@ async function sendValidateur() {
 }
 
 async function decide(action) {
+  if (action === "valider" && !idArchiveur.value) {
+    $q.notify({
+      type: "negative",
+      message: "Veuillez sélectionner le responsable d'archivage.",
+    });
+
+    return;
+  }
+
+  if (!commentaire.value.trim()) {
+    $q.notify({
+      type: "negative",
+      message: "Un commentaire est requis.",
+    });
+
+    return;
+  }
+
   busy.value = true;
+
   try {
     await api.post(`/dossiers/${props.dossierId}/decide`, {
       action,
       commentaire: commentaire.value,
+      id_archiveur: action === "valider" ? idArchiveur.value : null,
     });
+
     $q.notify({
       type: action === "valider" ? "positive" : "warning",
-      message: action === "valider" ? "Validé" : "Rejeté",
+
+      message:
+        action === "valider"
+          ? "Dossier validé et transmis à l'archivage."
+          : "Dossier rejeté.",
     });
+
+    idArchiveur.value = null;
+
     await load();
   } catch (e) {
     $q.notify({
       type: "negative",
-      message: e.response?.data?.error || "Erreur",
+      message: e.response?.data?.error || "Erreur lors de la décision.",
     });
   } finally {
     busy.value = false;
@@ -906,7 +992,12 @@ async function exportZip() {
 watch(() => props.dossierId, load, { immediate: false });
 
 onMounted(async () => {
-  await Promise.all([load(), loadValidateurs()]);
+  await Promise.all([
+    load(),
+    loadValidateurs(),
+    loadVerificateurs(),
+    loadArchiveurs(),
+  ]);
 });
 
 onUnmounted(revokePreview);

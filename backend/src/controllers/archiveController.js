@@ -61,6 +61,9 @@ async function list(req, res) {
  */
 async function archiveDossier(req, res) {
   try {
+    // --------------------------------------------------------
+    // 1. Vérification du rôle
+    // --------------------------------------------------------
     if (!["i_archive", "Admin"].includes(req.user.role)) {
       return res.status(403).json({
         error: "Action réservée au service d'archivage",
@@ -69,9 +72,9 @@ async function archiveDossier(req, res) {
 
     const dossierId = req.params.id;
 
-    /*
-     * Récupération du dossier
-     */
+    // --------------------------------------------------------
+    // 2. Récupération du dossier
+    // --------------------------------------------------------
     const dossierResult = await db.query(
       `
         SELECT *
@@ -83,29 +86,41 @@ async function archiveDossier(req, res) {
 
     const dossier = dossierResult.rows[0];
 
+    // --------------------------------------------------------
+    // 3. Vérification existence
+    // --------------------------------------------------------
     if (!dossier) {
       return res.status(404).json({
         error: "Dossier introuvable",
       });
     }
 
-    /*
-     * Seul un dossier VALIDÉ peut être archivé
-     */
+    // --------------------------------------------------------
+    // 4. Seul un dossier VALIDE peut être archivé
+    // --------------------------------------------------------
     if (dossier.statut !== "VALIDE") {
       return res.status(400).json({
         error: "Seul un dossier validé peut être archivé.",
       });
     }
 
-    /*
-     * Récupération des informations d'archivage
-     */
+    // --------------------------------------------------------
+    // 5. Vérifier que le dossier appartient au i_archive
+    // --------------------------------------------------------
+    if (req.user.role === "i_archive" && dossier.id_archiveur !== req.user.id) {
+      return res.status(403).json({
+        error: "Ce dossier ne vous a pas été attribué.",
+      });
+    }
+
+    // --------------------------------------------------------
+    // 6. Récupération des informations d'archivage
+    // --------------------------------------------------------
     const { compte_pc, date_fin_dossier, ref_ecriture, motif } = req.body;
 
-    /*
-     * Vérifications
-     */
+    // --------------------------------------------------------
+    // 7. Vérifications des champs obligatoires
+    // --------------------------------------------------------
     if (!compte_pc?.trim()) {
       return res.status(400).json({
         error: "Le compte PC est obligatoire.",
@@ -124,79 +139,51 @@ async function archiveDossier(req, res) {
       });
     }
 
-    /*
-     * Vérification simple du format de date YYYY-MM-DD
-     */
+    // Vérification du format YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date_fin_dossier)) {
       return res.status(400).json({
         error: "La date de fin du dossier doit être au format YYYY-MM-DD.",
       });
     }
 
-    /*
-     * Transaction PostgreSQL
-     */
-    const client = await db.connect();
+    // --------------------------------------------------------
+    // 8. Transaction PostgreSQL
+    // --------------------------------------------------------
+    await db.query(
+      `
+    UPDATE dossier
+    SET
+      compte_pc = $1,
+      date_fin_dossier = $2,
+      ref_ecriture = $3,
+      statut = 'ARCHIVE',
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $4
+  `,
+      [compte_pc.trim(), date_fin_dossier, ref_ecriture.trim(), dossierId],
+    );
 
-    try {
-      await client.query("BEGIN");
+    await db.query(
+      `
+    INSERT INTO archive (
+      id_dossier,
+      archive_par,
+      motif
+    )
+    VALUES ($1, $2, $3)
+    ON CONFLICT (id_dossier)
+    DO UPDATE SET
+      archive_par = EXCLUDED.archive_par,
+      date_archivage = CURRENT_TIMESTAMP,
+      motif = EXCLUDED.motif
+  `,
+      [dossierId, req.user.id, motif?.trim() || null],
+    );
 
-      /*
-       * Mise à jour du dossier
-       */
-      await client.query(
-        `
-          UPDATE dossier
-          SET
-            compte_pc = $1,
-            date_fin_dossier = $2,
-            ref_ecriture = $3,
-            statut = 'ARCHIVE',
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = $4
-        `,
-        [compte_pc.trim(), date_fin_dossier, ref_ecriture.trim(), dossierId],
-      );
-
-      /*
-       * Création / mise à jour de l'entrée d'archive
-       */
-      await client.query(
-        `
-          INSERT INTO archive (
-            id_dossier,
-            archive_par,
-            motif
-          )
-          VALUES ($1, $2, $3)
-          ON CONFLICT (id_dossier)
-          DO UPDATE SET
-            archive_par = EXCLUDED.archive_par,
-            date_archivage = CURRENT_TIMESTAMP,
-            motif = EXCLUDED.motif
-        `,
-        [dossierId, req.user.id, motif?.trim() || null],
-      );
-
-      /*
-       * Validation de la transaction
-       */
-      await client.query("COMMIT");
-
-      res.json({
-        success: true,
-        message: "Dossier archivé définitivement.",
-      });
-    } catch (error) {
-      /*
-       * Annulation de toute la transaction
-       */
-      await client.query("ROLLBACK");
-
-      throw error;
-    } finally {
-      client.release();
-    }
+    res.json({
+      success: true,
+      message: "Dossier archivé définitivement.",
+    });
   } catch (err) {
     console.error("Erreur archiveDossier :", err);
 
