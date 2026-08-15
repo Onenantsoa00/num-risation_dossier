@@ -1,7 +1,7 @@
 <!-- frontend/src/dossierDetailContent/DossierDetailContent.vue : -->
 <template>
   <div v-if="dossier" class="dossier-detail-content">
-    <DossierSplitLayout mode="preview">
+    <DossierSplitLayout :mode="isDocumentFullscreen ? 'fullscreen' : 'preview'">
       <template #left>
         <DossierFilePreview
           :remote-url="previewUrl"
@@ -9,11 +9,294 @@
           :loading="previewLoading"
           can-download
           @download="downloadFile"
+          @fullscreen="onDocumentFullscreen"
         />
       </template>
 
       <template #right>
-        <div class="surface-card sticky-panel">
+        <!-- =====================================================
+       MODE PLEIN ÉCRAN : ACTIONS DU RÔLE
+       ===================================================== -->
+        <div v-if="isDocumentFullscreen" class="fullscreen-action-panel">
+          <!-- =========================
+         DISPATCH
+         ========================= -->
+          <template v-if="auth.role === 'Dispatch'">
+            <div class="action-role-title">
+              <q-icon name="send" />
+              <span>Actions Dispatch</span>
+            </div>
+
+            <template v-if="canReuploadVersion">
+              <q-banner class="bg-orange-1 text-orange-10 q-mb-md" rounded>
+                <template #avatar>
+                  <q-icon name="reply" />
+                </template>
+
+                Ce dossier a été retourné par le validateur.
+              </q-banner>
+
+              <q-btn
+                color="primary"
+                icon="upload_file"
+                label="Importer une nouvelle version"
+                class="full-width"
+                unelevated
+                @click="openReuploadDialog"
+              />
+            </template>
+
+            <template v-else>
+              <div class="text-caption text-grey-7 q-mb-sm">
+                Aucune action supplémentaire n'est requise pour ce dossier.
+              </div>
+            </template>
+          </template>
+
+          <!-- =========================
+         VERIFICATEUR
+         ========================= -->
+          <template v-else-if="auth.role === 'Verificateur'">
+            <div class="action-role-title">
+              <q-icon name="fact_check" />
+              <span>Actions Vérificateur</span>
+            </div>
+
+            <q-input
+              v-model="commentaire"
+              type="textarea"
+              outlined
+              autogrow
+              label="Votre commentaire"
+              hint="Mentionnez @email@domaine.com"
+              class="q-mb-md"
+            />
+
+            <div class="row q-col-gutter-md items-end">
+              <div class="col-12 col-md-8">
+                <q-select
+                  v-model="idValidateur"
+                  :options="validateurs"
+                  label="Envoyer au validateur *"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  popup-content-class="fullscreen-select-popup"
+                />
+              </div>
+
+              <div class="col-12 col-md-4">
+                <q-btn
+                  color="warning"
+                  text-color="white"
+                  label="Transmettre"
+                  icon="send"
+                  class="full-width"
+                  unelevated
+                  :loading="busy"
+                  :disable="!commentaire.trim() || !idValidateur"
+                  @click="sendValidateur"
+                />
+              </div>
+            </div>
+          </template>
+
+          <!-- =========================
+         VALIDATEUR
+         ========================= -->
+          <template v-else-if="auth.role === 'Validateur'">
+            <div class="action-role-title">
+              <q-icon name="verified" />
+              <span>Actions Validateur</span>
+            </div>
+
+            <q-input
+              v-model="commentaire"
+              type="textarea"
+              outlined
+              autogrow
+              label="Votre commentaire"
+              hint="Mentionnez @email@domaine.com"
+              class="q-mb-md"
+            />
+
+            <q-select
+              v-model="idArchiveur"
+              :options="archiveurs"
+              label="Responsable archivage *"
+              outlined
+              dense
+              emit-value
+              map-options
+              use-input
+              input-debounce="200"
+              popup-content-class="fullscreen-select-popup"
+              class="q-mb-md"
+            >
+              <template #prepend>
+                <q-icon name="inventory_2" />
+              </template>
+            </q-select>
+
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-4">
+                <q-btn
+                  color="positive"
+                  icon="check"
+                  label="Valider"
+                  class="full-width"
+                  unelevated
+                  :loading="busy"
+                  :disable="!commentaire.trim() || !idArchiveur"
+                  @click="decide('valider')"
+                />
+              </div>
+
+              <div class="col-12 col-md-4">
+                <q-btn
+                  color="negative"
+                  icon="close"
+                  label="Rejeter"
+                  class="full-width"
+                  unelevated
+                  :loading="busy"
+                  :disable="!commentaire.trim()"
+                  @click="decide('rejeter')"
+                />
+              </div>
+
+              <div class="col-12 col-md-4">
+                <q-btn
+                  outline
+                  color="secondary"
+                  icon="undo"
+                  label="Retour Dispatch"
+                  class="full-width"
+                  :loading="busy"
+                  :disable="!commentaire.trim()"
+                  @click="retourDispatch"
+                />
+              </div>
+            </div>
+          </template>
+
+          <!-- =========================
+         I_ARCHIVE
+         ========================= -->
+          <template v-else-if="auth.role === 'i_archive'">
+            <div class="action-role-title">
+              <q-icon name="inventory_2" />
+              <span>Actions d'archivage</span>
+            </div>
+
+            <div class="row q-col-gutter-md items-end">
+              <div class="col-12 col-md-3">
+                <q-input
+                  v-model="archiveForm.compte_pc"
+                  label="Compte PC *"
+                  outlined
+                  dense
+                  maxlength="15"
+                />
+              </div>
+
+              <div class="col-12 col-md-3">
+                <q-input
+                  v-model="archiveForm.date_fin_dossier"
+                  label="Date fin du dossier *"
+                  type="date"
+                  outlined
+                  dense
+                />
+              </div>
+
+              <div class="col-12 col-md-3">
+                <q-input
+                  v-model="archiveForm.ref_ecriture"
+                  label="Référence d'écriture *"
+                  outlined
+                  dense
+                  maxlength="15"
+                />
+              </div>
+
+              <div class="col-12 col-md-3">
+                <q-btn
+                  color="positive"
+                  icon="inventory_2"
+                  label="Mettre en archive"
+                  class="full-width"
+                  unelevated
+                  :loading="archiveLoading"
+                  @click="archiveDossier"
+                />
+              </div>
+            </div>
+          </template>
+
+          <!-- =========================
+         ADMIN
+         ========================= -->
+          <template v-else-if="auth.role === 'Admin'">
+            <div class="action-role-title">
+              <q-icon name="admin_panel_settings" />
+              <span>Actions administrateur</span>
+            </div>
+
+            <q-input
+              v-model="commentaire"
+              type="textarea"
+              outlined
+              autogrow
+              label="Commentaire"
+              class="q-mb-md"
+            />
+
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-4">
+                <q-btn
+                  color="info"
+                  icon="fact_check"
+                  label="Vérifier"
+                  class="full-width"
+                  unelevated
+                  :disable="!commentaire.trim()"
+                  @click="adminAction('verifier')"
+                />
+              </div>
+
+              <div class="col-12 col-md-4">
+                <q-btn
+                  color="positive"
+                  icon="check"
+                  label="Valider"
+                  class="full-width"
+                  unelevated
+                  :disable="!commentaire.trim()"
+                  @click="decide('valider')"
+                />
+              </div>
+
+              <div class="col-12 col-md-4">
+                <q-btn
+                  color="negative"
+                  icon="close"
+                  label="Rejeter"
+                  class="full-width"
+                  unelevated
+                  :disable="!commentaire.trim()"
+                  @click="decide('rejeter')"
+                />
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- =====================================================
+       MODE NORMAL : TON PANNEAU ACTUEL
+       ===================================================== -->
+        <div v-else class="surface-card sticky-panel">
           <div class="row items-center justify-between q-mb-md">
             <div>
               <div class="text-h6 text-weight-bold">
@@ -598,6 +881,12 @@ const canArchive = computed(() => {
   return auth.role === "i_archive" && dossier.value.statut === "VALIDE";
 });
 
+const isDocumentFullscreen = ref(false);
+
+function onDocumentFullscreen(value) {
+  isDocumentFullscreen.value = value;
+}
+
 async function loadArchiveurs() {
   const { data } = await api.get("/users", {
     params: {
@@ -863,15 +1152,78 @@ function revokePreview() {
 
 async function loadPreview() {
   revokePreview();
-  if (!dossier.value?.fichier_original) return;
+
+  if (!dossier.value?.fichier_original) {
+    return;
+  }
+
   previewLoading.value = true;
-  try {
-    const res = await api.get(`/dossiers/${props.dossierId}/download`, {
-      responseType: "blob",
+
+  const token = localStorage.getItem("token");
+
+  async function fetchPreview() {
+    const url =
+      `/api/dossiers/${props.dossierId}/preview` + `?preview=${Date.now()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/pdf,image/*,text/plain,*/*",
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+
+      cache: "no-store",
     });
-    previewUrl.value = URL.createObjectURL(res.data);
-  } catch {
+
+    if (!response.ok) {
+      throw new Error(`Erreur HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+
+    if (!blob.size) {
+      throw new Error("Le fichier reçu est vide.");
+    }
+
+    const contentType =
+      response.headers.get("content-type") || "application/octet-stream";
+
+    return new Blob([blob], {
+      type: contentType,
+    });
+  }
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    let blob;
+
+    try {
+      blob = await fetchPreview();
+    } catch (firstError) {
+      console.warn(
+        "Première tentative de prévisualisation échouée, nouvelle tentative...",
+        firstError,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 700));
+
+      blob = await fetchPreview();
+    }
+
+    previewUrl.value = URL.createObjectURL(blob);
+  } catch (error) {
+    console.error("Erreur prévisualisation du fichier :", error);
+
     previewUrl.value = null;
+
+    $q.notify({
+      type: "negative",
+      message: "Impossible de charger le document après plusieurs tentatives.",
+    });
   } finally {
     previewLoading.value = false;
   }
@@ -1067,3 +1419,9 @@ onUnmounted(revokePreview);
 
 defineExpose({ reload: load });
 </script>
+
+<style scoped>
+:global(.fullscreen-select-popup) {
+  z-index: 30000 !important;
+}
+</style>

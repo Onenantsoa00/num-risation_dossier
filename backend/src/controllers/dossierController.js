@@ -1138,6 +1138,80 @@ async function exportDossier(req, res) {
   }
 }
 
+async function previewFile(req, res) {
+  try {
+    const dossier = await getDossierOr404(req.params.id);
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
+    }
+
+    if (!canSeeDossier(req.user, dossier)) {
+      return res.status(403).json({
+        error: "Accès refusé",
+      });
+    }
+
+    if (!dossier.fichier_original) {
+      return res.status(404).json({
+        error: "Aucun fichier",
+      });
+    }
+
+    const filePath = path.join(uploadDir, dossier.fichier_original);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: "Fichier introuvable sur le serveur",
+      });
+    }
+
+    const ext = path.extname(dossier.fichier_original).toLowerCase();
+
+    const mimeTypes = {
+      ".pdf": "application/pdf",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".txt": "text/plain; charset=utf-8",
+    };
+
+    res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${dossier.fichier_original}"`,
+    );
+
+    // Empêcher le navigateur / proxy de mettre le fichier en cache
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
+
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
+    return res.sendFile(filePath, {
+      etag: false,
+      lastModified: false,
+      cacheControl: false,
+    });
+  } catch (err) {
+    console.error("Erreur previewFile :", err);
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Erreur prévisualisation",
+      });
+    }
+  }
+}
+
 async function downloadFile(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
@@ -1174,4 +1248,5 @@ module.exports = {
   exportDossier,
   downloadFile,
   archiveDossier,
+  previewFile,
 };

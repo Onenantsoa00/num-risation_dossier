@@ -35,6 +35,7 @@ router.post(
 router.post("/:id/admin-action", authorize("Admin"), dossierCtrl.adminAction);
 router.post("/:id/retour-dispatch", dossierCtrl.returnToDispatch);
 router.get("/:id/export", dossierCtrl.exportDossier);
+router.get("/:id/preview", dossierCtrl.previewFile);
 router.get("/:id/download", dossierCtrl.downloadFile);
 
 module.exports = router;

@@ -27,8 +27,9 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 .dossier-workspace {
   display: grid;
 
-  /* gauche plus large que droite */
-  grid-template-columns: minmax(0, 1.65fr) minmax(380px, 0.85fr);
+  grid-template-columns:
+    minmax(0, 1.65fr)
+    minmax(380px, 0.85fr);
 
   gap: 16px;
 
@@ -36,6 +37,10 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 
   align-items: start;
 }
+
+/* =========================
+   MODE NORMAL
+   ========================= */
 
 .dossier-workspace__left {
   min-width: 0;
@@ -48,33 +53,19 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 }
 
 /*
- * Très important :
- * donne une vraie hauteur à la zone gauche.
+ * Hauteur normale du document
  */
 .dossier-workspace--preview .dossier-workspace__left {
   min-height: calc(100vh - 230px);
 }
 
-/*
- * Le DossierFilePreview doit pouvoir prendre toute
- * la hauteur disponible.
- */
 .dossier-workspace--preview .dossier-workspace__left :deep(.file-preview) {
   height: calc(100vh - 230px);
   min-height: 600px;
 }
 
 /*
- * Le contenu PDF/image prend toute la place.
- */
-.dossier-workspace--preview
-  .dossier-workspace__left
-  :deep(.file-preview__content) {
-  min-height: 0;
-}
-
-/*
- * Le panneau de droite reste visible pendant le scroll.
+ * Panneau droit sticky en mode normal
  */
 .dossier-workspace--preview .dossier-workspace__right {
   position: sticky;
@@ -86,7 +77,91 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 }
 
 /* =========================
-   TABLETTE / PETIT ÉCRAN
+   MODE PLEIN ÉCRAN
+   ========================= */
+
+.dossier-workspace--fullscreen {
+  position: fixed;
+
+  inset: 0;
+
+  z-index: 2000;
+
+  display: grid;
+
+  grid-template-columns: 1fr;
+
+  grid-template-rows:
+    minmax(0, 1fr)
+    auto;
+
+  gap: 0;
+
+  background: #111;
+
+  width: 100vw;
+  height: 100vh;
+
+  padding: 0;
+}
+
+/*
+ * Document en haut
+ */
+.dossier-workspace--fullscreen .dossier-workspace__left {
+  min-height: 0;
+
+  width: 100%;
+  height: 100%;
+
+  overflow: hidden;
+
+  background: #202124;
+}
+
+/*
+ * Le lecteur prend toute la zone haute
+ */
+.dossier-workspace--fullscreen .dossier-workspace__left :deep(.file-preview) {
+  height: 100%;
+
+  min-height: 0;
+
+  border-radius: 0;
+}
+
+/*
+ * Le panneau d'actions devient la zone basse
+ */
+.dossier-workspace--fullscreen .dossier-workspace__right {
+  width: 100%;
+
+  max-height: 310px;
+
+  overflow-y: auto;
+
+  position: relative;
+
+  top: auto;
+
+  background: white;
+
+  border-top: 1px solid #d9d9d9;
+}
+
+/*
+ * Affichage plus compact en plein écran
+ */
+.dossier-workspace--fullscreen .dossier-workspace__right :deep(.sticky-panel) {
+  border-radius: 0;
+
+  box-shadow: none;
+
+  padding: 16px;
+}
+
+/* =========================
+   TABLETTE
    ========================= */
 
 @media (max-width: 1000px) {
@@ -96,7 +171,9 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 
   .dossier-workspace--preview .dossier-workspace__right {
     position: static;
+
     max-height: none;
+
     overflow: visible;
   }
 
@@ -106,7 +183,24 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 
   .dossier-workspace--preview .dossier-workspace__left :deep(.file-preview) {
     height: 600px;
+
     min-height: 500px;
+  }
+}
+
+/* =========================
+   PETIT ÉCRAN
+   ========================= */
+
+@media (max-width: 600px) {
+  .dossier-workspace--fullscreen {
+    grid-template-rows:
+      minmax(0, 1fr)
+      auto;
+  }
+
+  .dossier-workspace--fullscreen .dossier-workspace__right {
+    max-height: 40vh;
   }
 }
 </style>
