@@ -111,6 +111,7 @@ const columns = [
   { name: "nom", label: "Nom", field: "nom", align: "left", sortable: true },
   { name: "n_compte", label: "N° compte", field: "n_compte", align: "left" },
   { name: "n_be", label: "N° BE", field: "n_be", align: "left" },
+  { name: "n_ord", label: "N° ORD", field: "n_ord", align: "left" },
   { name: "n_soa", label: "N° SOA", field: "n_soa", align: "left" },
   {
     name: "exo_budgetaire",

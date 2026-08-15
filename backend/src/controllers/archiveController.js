@@ -1,4 +1,7 @@
+const fs = require("fs");
+const path = require("path");
 const db = require("../config/db");
+const { uploadDir } = require("../middleware/upload");
 
 async function list(req, res) {
   try {
@@ -146,6 +149,73 @@ async function archiveDossier(req, res) {
       });
     }
 
+    const dateCompacte = date_fin_dossier.replace(/-/g, "");
+
+    const archiveurUser = await db.query(
+      `
+    SELECT im
+    FROM utilisateur
+    WHERE id = $1
+  `,
+      [req.user.id],
+    );
+
+    const im = archiveurUser.rows[0]?.im;
+
+    if (!im) {
+      return res.status(400).json({
+        error: "L'IM de l'archiveur est obligatoire pour archiver le dossier.",
+      });
+    }
+
+    const safePart = (value) =>
+      String(value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+    const nouveauNom = [
+      dossier.exo_budgetaire,
+      dossier.n_be,
+      dossier.n_ord,
+      dossier.n_compte,
+      dossier.n_soa,
+      compte_pc,
+      ref_ecriture,
+      dateCompacte,
+      im,
+    ]
+      .map(safePart)
+      .filter(Boolean)
+      .join("_");
+
+    const extension = path
+      .extname(dossier.fichier_original || "")
+      .toLowerCase();
+
+    const nouveauNomFichier = `${nouveauNom}${extension}`;
+
+    const ancienChemin = path.join(uploadDir, dossier.fichier_original);
+
+    const nouveauChemin = path.join(uploadDir, nouveauNomFichier);
+
+    if (!fs.existsSync(ancienChemin)) {
+      return res.status(404).json({
+        error: "Le fichier original du dossier est introuvable sur le serveur.",
+      });
+    }
+
+    if (ancienChemin !== nouveauChemin && fs.existsSync(nouveauChemin)) {
+      return res.status(409).json({
+        error: `Le fichier "${nouveauNomFichier}" existe déjà.`,
+      });
+    }
+
+    if (ancienChemin !== nouveauChemin) {
+      await fs.promises.rename(ancienChemin, nouveauChemin);
+    }
+
     // --------------------------------------------------------
     // 8. Transaction PostgreSQL
     // --------------------------------------------------------
@@ -153,14 +223,23 @@ async function archiveDossier(req, res) {
       `
     UPDATE dossier
     SET
-      compte_pc = $1,
-      date_fin_dossier = $2,
-      ref_ecriture = $3,
+      nom = $1,
+      compte_pc = $2,
+      date_fin_dossier = $3,
+      ref_ecriture = $4,
+      fichier_original = $5,
       statut = 'ARCHIVE',
       updated_at = CURRENT_TIMESTAMP
-    WHERE id = $4
+    WHERE id = $6
   `,
-      [compte_pc.trim(), date_fin_dossier, ref_ecriture.trim(), dossierId],
+      [
+        nouveauNom,
+        compte_pc.trim(),
+        date_fin_dossier,
+        ref_ecriture.trim(),
+        nouveauNomFichier,
+        dossierId,
+      ],
     );
 
     await db.query(
