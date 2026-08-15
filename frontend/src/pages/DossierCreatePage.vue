@@ -144,7 +144,6 @@
             v-model="form.commentaire"
             type="textarea"
             label="Commentaire"
-            hint="Vous pouvez mentionner un utilisateur avec @email@domaine.com"
             outlined
             autogrow
           />

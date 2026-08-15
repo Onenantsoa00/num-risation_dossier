@@ -5,39 +5,158 @@ const { uploadDir } = require("../middleware/upload");
 
 async function list(req, res) {
   try {
+    const { q, type } = req.query;
+
     let sql = `
       SELECT
         a.*,
+
         d.nom AS dossier_nom,
         d.statut,
         d.fichier_original,
+
+        d.n_compte,
+        d.n_be,
+        d.n_ord,
+        d.n_soa,
+        d.exo_budgetaire,
         d.compte_pc,
         d.date_fin_dossier,
         d.ref_ecriture,
+
         u.nom AS archiveur_nom,
-        u.prenoms AS archiveur_prenoms
+        u.prenoms AS archiveur_prenoms,
+        u.im AS archiveur_im
+
       FROM archive a
-      JOIN dossier d ON d.id = a.id_dossier
-      LEFT JOIN utilisateur u ON u.id = a.archive_par
+
+      JOIN dossier d
+        ON d.id = a.id_dossier
+
+      LEFT JOIN utilisateur u
+        ON u.id = a.archive_par
     `;
 
+    const conditions = [];
     const params = [];
 
+    // ============================================================
+    // 1. DROITS D'ACCÈS
+    // ============================================================
+
     if (req.user.role === "Dispatch") {
-      sql += " WHERE d.id_dispatch = $1";
       params.push(req.user.id);
+
+      conditions.push(`d.id_dispatch = $${params.length}`);
     } else if (!["Admin", "super_admin", "i_archive"].includes(req.user.role)) {
-      // Les autres rôles n'ont pas accès aux archives
       return res.json([]);
     }
 
-    sql += " ORDER BY a.date_archivage DESC";
+    // ============================================================
+    // 2. RECHERCHE
+    // ============================================================
+
+    if (q?.trim()) {
+      const search = q.trim();
+
+      // ----------------------------------------------------------
+      // Recherche par critère précis
+      // ----------------------------------------------------------
+
+      const fieldMap = {
+        nom: `d.nom ILIKE $SEARCH`,
+        exo_budgetaire: `d.exo_budgetaire ILIKE $SEARCH`,
+        n_be: `d.n_be ILIKE $SEARCH`,
+        n_ord: `d.n_ord ILIKE $SEARCH`,
+        n_compte: `d.n_compte ILIKE $SEARCH`,
+        n_soa: `d.n_soa ILIKE $SEARCH`,
+        compte_pc: `d.compte_pc ILIKE $SEARCH`,
+        ref_ecriture: `d.ref_ecriture ILIKE $SEARCH`,
+
+        im: `u.im ILIKE $SEARCH`,
+
+        date_fin_dossier: `
+          (
+            TO_CHAR(
+              d.date_fin_dossier,
+              'YYYY-MM-DD'
+            ) ILIKE $SEARCH
+
+            OR
+
+            TO_CHAR(
+              d.date_fin_dossier,
+              'DD/MM/YYYY'
+            ) ILIKE $SEARCH
+          )
+        `,
+      };
+
+      if (type && type !== "tous" && fieldMap[type]) {
+        const placeholder = `$${params.length + 1}`;
+
+        conditions.push(fieldMap[type].replace(/\$SEARCH/g, placeholder));
+
+        params.push(`%${search}%`);
+      }
+
+      // ----------------------------------------------------------
+      // Tous les champs
+      // ----------------------------------------------------------
+      else {
+        const placeholder = `$${params.length + 1}`;
+
+        conditions.push(`
+          (
+            d.nom ILIKE ${placeholder}
+            OR d.exo_budgetaire ILIKE ${placeholder}
+            OR d.n_be ILIKE ${placeholder}
+            OR d.n_ord ILIKE ${placeholder}
+            OR d.n_compte ILIKE ${placeholder}
+            OR d.n_soa ILIKE ${placeholder}
+            OR d.compte_pc ILIKE ${placeholder}
+            OR d.ref_ecriture ILIKE ${placeholder}
+            OR u.im ILIKE ${placeholder}
+
+            OR TO_CHAR(
+              d.date_fin_dossier,
+              'YYYY-MM-DD'
+            ) ILIKE ${placeholder}
+
+            OR TO_CHAR(
+              d.date_fin_dossier,
+              'DD/MM/YYYY'
+            ) ILIKE ${placeholder}
+          )
+        `);
+
+        params.push(`%${search}%`);
+      }
+    }
+
+    // ============================================================
+    // 3. WHERE
+    // ============================================================
+
+    if (conditions.length) {
+      sql += `
+        WHERE ${conditions.join(" AND ")}
+      `;
+    }
+
+    // ============================================================
+    // 4. TRI
+    // ============================================================
+
+    sql += `
+      ORDER BY a.date_archivage DESC
+    `;
 
     const { rows } = await db.query(sql, params);
 
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error("Erreur liste archives :", err);
 
     res.status(500).json({
       error: "Erreur liste archives",
