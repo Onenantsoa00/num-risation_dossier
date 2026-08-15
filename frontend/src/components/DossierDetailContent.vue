@@ -1395,27 +1395,96 @@ async function adminAction(action) {
 }
 
 async function downloadFile() {
-  const res = await api.get(`/dossiers/${props.dossierId}/download`, {
-    responseType: "blob",
-  });
-  const url = URL.createObjectURL(res.data);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = dossier.value.fichier_original || "dossier";
-  a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const token = localStorage.getItem("token");
+
+    const response = await fetch(`/api/dossiers/${props.dossierId}/download`, {
+      method: "GET",
+
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Erreur HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+
+    if (!blob.size) {
+      throw new Error("Le fichier téléchargé est vide.");
+    }
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+
+    a.href = url;
+
+    a.download = dossier.value?.fichier_original || "dossier";
+
+    document.body.appendChild(a);
+
+    a.click();
+
+    a.remove();
+
+    // Ne pas libérer immédiatement dans certains navigateurs
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  } catch (error) {
+    console.error("Erreur téléchargement :", error);
+
+    $q.notify({
+      type: "negative",
+      message: "Impossible de télécharger le fichier.",
+    });
+  }
 }
 
 async function exportZip() {
-  const res = await api.get(`/dossiers/${props.dossierId}/export`, {
-    responseType: "blob",
-  });
-  const url = URL.createObjectURL(res.data);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${dossier.value.nom || "dossier"}.zip`;
-  a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const res = await api.get(`/dossiers/${props.dossierId}/export`, {
+      responseType: "blob",
+    });
+
+    const url = URL.createObjectURL(res.data);
+
+    const a = document.createElement("a");
+
+    a.href = url;
+
+    a.download = `${dossier.value?.nom || "dossier"}.zip`;
+
+    document.body.appendChild(a);
+
+    a.click();
+
+    a.remove();
+
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1000);
+
+    $q.notify({
+      type: "positive",
+      message: "Export téléchargé",
+    });
+  } catch (error) {
+    console.error("Erreur export ZIP :", error);
+
+    $q.notify({
+      type: "negative",
+      message:
+        error.response?.data?.error || "Erreur lors de l'export du dossier.",
+    });
+  }
 }
 
 watch(() => props.dossierId, load, { immediate: false });
