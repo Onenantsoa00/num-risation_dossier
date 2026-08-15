@@ -86,6 +86,10 @@
             </div>
 
             <div class="col-12 col-sm-6">
+              <q-input v-model="nOrd" label="N° ORD" outlined />
+            </div>
+
+            <div class="col-12 col-sm-6">
               <q-input
                 v-model="exoBudgetaire"
                 label="Exercice budgétaire"
@@ -194,6 +198,7 @@ const verificateurs = ref([]);
 const nCompte = ref("");
 const nBe = ref("");
 const nSoa = ref("");
+const nOrd = ref("");
 const exoBudgetaire = ref("");
 
 /*
@@ -203,14 +208,10 @@ const exoBudgetaire = ref("");
  * 100020039-10399049-0293029390-2026
  */
 const nomDossier = computed(() => {
-  return [
-    nCompte.value.trim(),
-    nBe.value.trim(),
-    nSoa.value.trim(),
-    exoBudgetaire.value.trim(),
-  ]
-    .filter((value) => value !== "")
-    .join("-");
+  return [exoBudgetaire.value, nBe.value, nOrd.value, nCompte.value, nSoa.value]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join("_");
 });
 
 /*
@@ -309,6 +310,7 @@ async function submit() {
      */
     fd.append("n_compte", nCompte.value.trim());
     fd.append("n_be", nBe.value.trim());
+    fd.append("n_ord", nOrd.value.trim());
     fd.append("n_soa", nSoa.value.trim());
     fd.append("exo_budgetaire", exoBudgetaire.value.trim());
 

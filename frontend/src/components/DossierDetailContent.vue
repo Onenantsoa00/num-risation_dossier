@@ -15,12 +15,12 @@
 
       <template #right>
         <!-- =====================================================
-       MODE PLEIN ÉCRAN : ACTIONS DU RÔLE
-       ===================================================== -->
+        MODE PLEIN ÉCRAN : ACTIONS DU RÔLE
+        ===================================================== -->
         <div v-if="isDocumentFullscreen" class="fullscreen-action-panel">
           <!-- =========================
-         DISPATCH
-         ========================= -->
+          DISPATCH
+          ========================= -->
           <template v-if="auth.role === 'Dispatch'">
             <div class="action-role-title">
               <q-icon name="send" />
@@ -54,8 +54,8 @@
           </template>
 
           <!-- =========================
-         VERIFICATEUR
-         ========================= -->
+          VERIFICATEUR
+          ========================= -->
           <template v-else-if="auth.role === 'Verificateur'">
             <div class="action-role-title">
               <q-icon name="fact_check" />
@@ -103,8 +103,8 @@
           </template>
 
           <!-- =========================
-         VALIDATEUR
-         ========================= -->
+          VALIDATEUR
+          ========================= -->
           <template v-else-if="auth.role === 'Validateur'">
             <div class="action-role-title">
               <q-icon name="verified" />
@@ -194,7 +194,7 @@
               <div class="col-12 col-md-3">
                 <q-input
                   v-model="archiveForm.compte_pc"
-                  label="Compte PC *"
+                  label="Compte de prise en charge *"
                   outlined
                   dense
                   maxlength="15"
@@ -382,6 +382,14 @@
               </div>
 
               <div class="col-6">
+                <div class="text-caption text-grey-7">N° ORD</div>
+
+                <div class="text-body2 text-weight-medium">
+                  {{ dossier.n_ord || "—" }}
+                </div>
+              </div>
+
+              <div class="col-6">
                 <div class="text-caption text-grey-7">Exercice</div>
 
                 <div class="text-body2 text-weight-medium">
@@ -403,8 +411,8 @@
           </div>
 
           <!-- =========================
-     INFORMATIONS ARCHIVAGE
-     ========================= -->
+          INFORMATIONS ARCHIVAGE
+          ========================= -->
           <template v-if="auth.role === 'i_archive'">
             <q-separator class="q-my-md" />
 
@@ -415,7 +423,9 @@
             </div>
 
             <div class="col-6">
-              <div class="text-caption text-grey-7">Compte PC</div>
+              <div class="text-caption text-grey-7">
+                Compte de prise en charge
+              </div>
 
               <div class="text-body2 text-weight-medium">
                 {{ dossier.compte_pc || "—" }}
@@ -442,14 +452,14 @@
               <div class="text-caption text-grey-7">IM de l'archiveur</div>
 
               <div class="text-body2 text-weight-medium">
-                {{ dossier.archiveur_im || "—" }}
+                # {{ dossier.archiveur_im || "—" }}
               </div>
             </div>
           </template>
 
           <!-- =========================
-     I_ARCHIVE
-     ========================= -->
+          I_ARCHIVE
+          ========================= -->
           <template v-if="canArchive">
             <q-banner class="bg-green-1 text-positive q-mb-md" rounded>
               <template #avatar>
@@ -471,7 +481,7 @@
             <!-- Compte PC -->
             <q-input
               v-model="archiveForm.compte_pc"
-              label="Compte PC *"
+              label="Compte de prise en charge *"
               outlined
               maxlength="15"
               class="q-mb-md"
@@ -532,8 +542,8 @@
           </template>
 
           <!-- =========================
-     COMMENTAIRE
-========================= -->
+          COMMENTAIRE
+          ========================= -->
           <template v-if="auth.role !== 'i_archive'">
             <div class="text-subtitle2 text-weight-bold q-mb-sm">
               Commentaire
@@ -569,8 +579,8 @@
           </template>
 
           <!-- =========================
-     VERIFICATEUR
-========================= -->
+          VERIFICATEUR
+          ========================= -->
           <template v-if="canSendToValidateur">
             <q-separator class="q-mb-md" />
 
@@ -600,8 +610,8 @@
           </template>
 
           <!-- =========================
-     VALIDATEUR
-========================= -->
+          VALIDATEUR
+          ========================= -->
           <template v-if="canDecide">
             <q-separator class="q-mb-md" />
 
@@ -659,8 +669,8 @@
           </template>
 
           <!-- =========================
-         ADMIN
-         ========================= -->
+          ADMIN
+          ========================= -->
           <template v-if="auth.role === 'Admin' && !canDecide">
             <q-separator class="q-mb-md" />
 
@@ -697,8 +707,8 @@
           </template>
 
           <!-- =========================
-     ACTEURS
-========================= -->
+          ACTEURS
+          ========================= -->
 
           <q-separator class="q-my-md" />
 
@@ -904,7 +914,7 @@ async function archiveDossier() {
   if (!archiveForm.value.compte_pc.trim()) {
     $q.notify({
       type: "negative",
-      message: "Le compte PC est obligatoire.",
+      message: "Le compte de prise en charge est obligatoire.",
     });
     return;
   }
@@ -1121,9 +1131,13 @@ function formatDate(d) {
 function formatDateOnly(value) {
   if (!value) return "—";
 
-  const date = new Date(`${value}T00:00:00`);
+  const text = String(value).slice(0, 10);
 
-  return date.toLocaleDateString("fr-FR");
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+
+  if (!match) return "—";
+
+  return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
 function actor(prenoms, nom) {
