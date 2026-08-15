@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const archiver = require("archiver");
 const db = require("../config/db");
+const PDFDocument = require("pdfkit");
 const {
   createNotification,
   notifyMentions,
@@ -1030,115 +1031,265 @@ async function reuploadVersion(req, res) {
 
 async function exportDossier(req, res) {
   try {
+    // ============================================================
+    // 1. Récupération du dossier
+    // ============================================================
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: "Accès refusé" });
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
     }
 
+    // ============================================================
+    // 2. Vérification des droits d'accès
+    // ============================================================
+    if (!canSeeDossier(req.user, dossier)) {
+      return res.status(403).json({
+        error: "Accès refusé",
+      });
+    }
+
+    // ============================================================
+    // 3. Récupération de l'historique des traitements
+    // ============================================================
     const traitements = await db.query(
-      `SELECT t.*, u.nom, u.prenoms, u.email
-       FROM traitement t
-       JOIN utilisateur u ON u.id = t.id_users
-       WHERE t.id_dossier = $1
-       ORDER BY t.date_traitement ASC`,
+      `
+        SELECT
+          t.*,
+          u.nom,
+          u.prenoms,
+          u.email
+        FROM traitement t
+        JOIN utilisateur u
+          ON u.id = t.id_users
+        WHERE t.id_dossier = $1
+        ORDER BY t.date_traitement ASC
+      `,
       [dossier.id],
     );
 
-    const safeName = (dossier.nom || `dossier_${dossier.id}`).replace(
-      /[^a-zA-Z0-9._\-\s]/g,
-      "_",
-    );
+    // ============================================================
+    // 4. Nom sécurisé du fichier ZIP
+    // ============================================================
+    const safeName = (dossier.nom || `dossier_${dossier.id}`)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._\-\s]/g, "_")
+      .replace(/\s+/g, "_")
+      .replace(/^[-_.]+|[-_.]+$/g, "")
+      .trim();
+
     const zipName = `${safeName}.zip`;
-    let archiveur = null;
 
-    if (action === "valider") {
-      const archiveurResult = await db.query(
-        `
-      SELECT u.id, u.nom, u.prenoms, u.email
-      FROM utilisateur u
-      JOIN roles r ON r.id = u.id_roles
-      WHERE u.id = $1
-        AND LOWER(r.nom) = LOWER('i_archive')
-    `,
-        [id_archiveur],
-      );
-
-      archiveur = archiveurResult.rows[0];
-
-      if (!archiveur) {
-        return res.status(400).json({
-          error: "L'utilisateur sélectionné n'a pas le rôle i_archive.",
-        });
-      }
-    }
+    // ============================================================
+    // 5. Headers HTTP
+    // ============================================================
     res.setHeader("Content-Type", "application/zip");
+
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${encodeURIComponent(zipName)}"`,
     );
 
-    const archive = archiver("zip", { zlib: { level: 9 } });
-    archive.on("error", (err) => {
-      console.error(err);
-      if (!res.headersSent) res.status(500).json({ error: "Erreur export" });
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
+
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
+    // ============================================================
+    // 6. Création du ZIP
+    // ============================================================
+    const archive = archiver("zip", {
+      zlib: {
+        level: 9,
+      },
     });
+
+    archive.on("error", (err) => {
+      console.error("Erreur archiver ZIP :", err);
+
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "Erreur export",
+        });
+      }
+    });
+
     archive.pipe(res);
 
+    // ============================================================
+    // 7. Métadonnées du dossier
+    // ============================================================
     const meta = {
       nom: dossier.nom,
+
       n_compte: dossier.n_compte,
       n_be: dossier.n_be,
+      n_ord: dossier.n_ord,
       n_soa: dossier.n_soa,
       exo_budgetaire: dossier.exo_budgetaire,
+
+      compte_pc: dossier.compte_pc,
+      date_fin_dossier: dossier.date_fin_dossier,
+      ref_ecriture: dossier.ref_ecriture,
+
       statut: dossier.statut,
       validation: dossier.validation,
       rejet: dossier.rejet,
+
+      id_dispatch: dossier.id_dispatch,
+      id_verificateur: dossier.id_verificateur,
+      id_validateur: dossier.id_validateur,
+      id_archiveur: dossier.id_archiveur,
+
       commentaire_actuel: dossier.commentaire,
+
       created_at: dossier.created_at,
       updated_at: dossier.updated_at,
+
       traitements: traitements.rows.map((t) => ({
         type: t.type_traitement,
         statut: t.statut,
         commentaire: t.commentaire,
-        auteur: `${t.prenoms} ${t.nom}`,
+
+        auteur: `${t.prenoms} ${t.nom}`.trim(),
+
         email: t.email,
+
         date: t.date_traitement,
       })),
     };
 
-    archive.append(JSON.stringify(meta, null, 2), {
-      name: "commentaires.json",
+    const commentairePdf = new PDFDocument({
+      margin: 50,
+      size: "A4",
     });
-    archive.append(
-      [
-        `Dossier: ${dossier.nom}`,
-        `Statut: ${dossier.statut}`,
-        `N° compte: ${dossier.n_compte || "-"}`,
-        `N° BE: ${dossier.n_be || "-"}`,
-        `N° SOA: ${dossier.n_soa || "-"}`,
-        `Exercice: ${dossier.exo_budgetaire || "-"}`,
-        "",
-        "=== HISTORIQUE DES COMMENTAIRES ===",
-        ...traitements.rows.map(
-          (t) =>
-            `[${t.date_traitement?.toISOString?.() || t.date_traitement}] ${t.type_traitement} — ${t.prenoms} ${t.nom}\n${t.commentaire || ""}\n`,
-        ),
-      ].join("\n"),
-      { name: "commentaires.txt" },
+
+    const commentaireChunks = [];
+
+    commentairePdf.on("data", (chunk) => {
+      commentaireChunks.push(chunk);
+    });
+
+    const commentairePdfPromise = new Promise((resolve, reject) => {
+      commentairePdf.on("end", () => {
+        resolve(Buffer.concat(commentaireChunks));
+      });
+
+      commentairePdf.on("error", reject);
+    });
+
+    commentairePdf.fontSize(18).text("Historique du dossier", {
+      align: "center",
+    });
+
+    commentairePdf.moveDown();
+
+    commentairePdf.fontSize(11).text(`Dossier : ${dossier.nom || "-"}`);
+
+    commentairePdf.text(`N° compte : ${dossier.n_compte || "-"}`);
+
+    commentairePdf.text(`N° BE : ${dossier.n_be || "-"}`);
+
+    commentairePdf.text(`N° ORD : ${dossier.n_ord || "-"}`);
+
+    commentairePdf.text(`N° SOA : ${dossier.n_soa || "-"}`);
+
+    commentairePdf.text(`Exercice : ${dossier.exo_budgetaire || "-"}`);
+
+    commentairePdf.moveDown();
+
+    commentairePdf.text(`Compte PC : ${dossier.compte_pc || "-"}`);
+
+    commentairePdf.text(
+      `Date fin du dossier : ${dossier.date_fin_dossier || "-"}`,
     );
 
+    commentairePdf.text(
+      `Référence d'écriture : ${dossier.ref_ecriture || "-"}`,
+    );
+
+    commentairePdf.moveDown();
+
+    commentairePdf.fontSize(14).text("Commentaires et historique");
+
+    commentairePdf.moveDown();
+
+    for (const t of traitements.rows) {
+      const auteur = `${t.prenoms || ""} ${t.nom || ""}`.trim();
+
+      const date =
+        t.date_traitement?.toISOString?.() || t.date_traitement || "";
+
+      commentairePdf
+        .fontSize(11)
+        .font("Helvetica-Bold")
+        .text(`${date} — ${t.type_traitement || ""}`);
+
+      commentairePdf.font("Helvetica").text(`Auteur : ${auteur || "-"}`);
+
+      commentairePdf.text(`Commentaire : ${t.commentaire || "-"}`);
+
+      commentairePdf.moveDown();
+    }
+
+    commentairePdf.end();
+
+    const commentairePdfBuffer = await commentairePdfPromise;
+
+    archive.append(commentairePdfBuffer, {
+      name: "commentaire.pdf",
+    });
+
+    // ============================================================
+    // 9. Ajouter commentaires.txt
+    // ============================================================
+    const historiqueTexte = traitements.rows.map((t) => {
+      const date =
+        t.date_traitement?.toISOString?.() || t.date_traitement || "";
+
+      const auteur = `${t.prenoms || ""} ${t.nom || ""}`.trim();
+
+      return (
+        `[${date}] ` +
+        `${t.type_traitement} — ` +
+        `${auteur}\n` +
+        `${t.commentaire || ""}\n`
+      );
+    });
+
+    // ============================================================
+    // 10. Ajouter le fichier original
+    // ============================================================
     if (dossier.fichier_original) {
       const filePath = path.join(uploadDir, dossier.fichier_original);
+
       if (fs.existsSync(filePath)) {
-        archive.file(filePath, { name: `fichier/${dossier.fichier_original}` });
+        archive.file(filePath, {
+          name: `fichier/${dossier.fichier_original}`,
+        });
+      } else {
+        console.warn(`Fichier du dossier introuvable : ${filePath}`);
       }
     }
 
+    // ============================================================
+    // 11. Finalisation
+    // ============================================================
     await archive.finalize();
   } catch (err) {
-    console.error(err);
-    if (!res.headersSent) res.status(500).json({ error: "Erreur exportation" });
+    console.error("Erreur exportDossier :", err);
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Erreur exportation",
+      });
+    }
   }
 }
 
@@ -1218,24 +1369,96 @@ async function previewFile(req, res) {
 
 async function downloadFile(req, res) {
   try {
+    // ============================================================
+    // 1. Récupération du dossier
+    // ============================================================
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
+    }
+
+    // ============================================================
+    // 2. Vérification des droits
+    // ============================================================
     if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: "Accès refusé" });
+      return res.status(403).json({
+        error: "Accès refusé",
+      });
     }
+
+    // ============================================================
+    // 3. Vérification du fichier
+    // ============================================================
     if (!dossier.fichier_original) {
-      return res.status(404).json({ error: "Aucun fichier" });
+      return res.status(404).json({
+        error: "Aucun fichier",
+      });
     }
+
     const filePath = path.join(uploadDir, dossier.fichier_original);
+
     if (!fs.existsSync(filePath)) {
-      return res
-        .status(404)
-        .json({ error: "Fichier introuvable sur le serveur" });
+      return res.status(404).json({
+        error: "Fichier introuvable sur le serveur",
+      });
     }
-    res.download(filePath, dossier.fichier_original);
+
+    // ============================================================
+    // 4. Déterminer le type MIME
+    // ============================================================
+    const ext = path.extname(dossier.fichier_original).toLowerCase();
+
+    const mimeTypes = {
+      ".pdf": "application/pdf",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".txt": "text/plain; charset=utf-8",
+      ".doc": "application/msword",
+      ".docx":
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".xls": "application/vnd.ms-excel",
+      ".xlsx":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ".zip": "application/zip",
+    };
+
+    res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+
+    // Forcer le téléchargement
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(dossier.fichier_original)}"`,
+    );
+
+    // Empêcher le cache
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
+
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+
+    // Désactiver les réponses 304/ETag
+    return res.sendFile(filePath, {
+      etag: false,
+      lastModified: false,
+      cacheControl: false,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erreur téléchargement" });
+    console.error("Erreur téléchargement :", err);
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Erreur téléchargement",
+      });
+    }
   }
 }
 
