@@ -52,6 +52,19 @@
         </q-item>
 
         <q-item
+          v-if="auth.role === 'Admin'"
+          clickable
+          v-ripple
+          :to="{ name: 'users' }"
+        >
+          <q-item-section avatar>
+            <q-icon name="manage_accounts" />
+          </q-item-section>
+
+          <q-item-section> Utilisateurs </q-item-section>
+        </q-item>
+
+        <q-item
           v-if="['Dispatch', 'Admin'].includes(auth.role)"
           clickable
           v-ripple

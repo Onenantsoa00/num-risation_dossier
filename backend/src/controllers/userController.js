@@ -14,11 +14,201 @@ async function listRoles(_req, res) {
   }
 }
 
+async function createUser(req, res) {
+  try {
+    if (req.user.role !== "Admin") {
+      return res.status(403).json({
+        error: "Seul l'Admin peut créer des comptes.",
+      });
+    }
+
+    const { nom, prenoms, email, mdp, tel, date_naissance, cin, im, id_roles } =
+      req.body;
+
+    if (!nom?.trim() || !prenoms?.trim()) {
+      return res.status(400).json({
+        error: "Le nom et les prénoms sont obligatoires.",
+      });
+    }
+
+    if (!email?.trim()) {
+      return res.status(400).json({
+        error: "L'email est obligatoire.",
+      });
+    }
+
+    if (!mdp || mdp.length < 6) {
+      return res.status(400).json({
+        error: "Le mot de passe doit contenir au moins 6 caractères.",
+      });
+    }
+
+    if (!id_roles) {
+      return res.status(400).json({
+        error: "Le rôle est obligatoire.",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // Vérifier que le rôle est autorisé à la création
+    // ----------------------------------------------------------
+
+    const roleResult = await db.query(
+      `
+        SELECT id, nom
+        FROM roles
+        WHERE id = $1
+      `,
+      [id_roles],
+    );
+
+    const role = roleResult.rows[0];
+
+    const rolesAutorises = [
+      "Dispatch",
+      "Verificateur",
+      "Validateur",
+      "i_archive",
+    ];
+
+    if (!role || !rolesAutorises.includes(role.nom)) {
+      return res.status(400).json({
+        error:
+          "Le rôle doit être Dispatch, Verificateur, Validateur ou i_archive.",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // Vérifier l'email
+    // ----------------------------------------------------------
+
+    const emailNormalized = email.trim().toLowerCase();
+
+    const exists = await db.query(
+      `
+        SELECT id
+        FROM utilisateur
+        WHERE LOWER(email) = LOWER($1)
+      `,
+      [emailNormalized],
+    );
+
+    if (exists.rows.length) {
+      return res.status(409).json({
+        error: "Cet email est déjà utilisé.",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // Hash du mot de passe
+    // ----------------------------------------------------------
+
+    const hash = await argon2.hash(mdp, {
+      type: argon2.argon2id,
+    });
+
+    // ----------------------------------------------------------
+    // Création
+    // ----------------------------------------------------------
+
+    const { rows } = await db.query(
+      `
+        INSERT INTO utilisateur (
+          nom,
+          prenoms,
+          email,
+          mdp,
+          tel,
+          date_naissance,
+          cin,
+          im,
+          id_roles,
+          image
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10
+        )
+        RETURNING
+          id,
+          nom,
+          prenoms,
+          email,
+          tel,
+          date_naissance,
+          cin,
+          im,
+          image,
+          id_roles
+      `,
+      [
+        nom.trim(),
+        prenoms.trim(),
+        emailNormalized,
+        hash,
+        tel?.trim() || null,
+        date_naissance || null,
+        cin?.trim() || null,
+        im?.trim() || null,
+        role.id,
+        req.file ? `/uploads/${req.file.filename}` : null,
+      ],
+    );
+
+    const user = {
+      ...rows[0],
+      role: role.nom,
+    };
+
+    await audit({
+      id_user: req.user.id,
+      action: "CREATE_USER",
+      table_name: "utilisateur",
+      record_id: user.id,
+      details: {
+        role: role.nom,
+        email: emailNormalized,
+      },
+      ip_address: req.ip,
+    });
+
+    res.status(201).json({
+      message: "Compte utilisateur créé avec succès.",
+      user,
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: "Erreur création utilisateur.",
+    });
+  }
+}
+
 async function listUsers(req, res) {
   try {
     const { role } = req.query;
     let sql = `
-      SELECT u.id, u.nom, u.prenoms, u.email, u.tel, u.image, u.id_roles, r.nom AS role
+      SELECT
+        u.id,
+        u.nom,
+        u.prenoms,
+        u.email,
+        u.tel,
+        u.date_naissance,
+        u.cin,
+        u.im,
+        u.image,
+        u.id_roles,
+        r.nom AS role
       FROM utilisateur u
       LEFT JOIN roles r ON r.id = u.id_roles
     `;
@@ -135,4 +325,4 @@ async function updateProfile(req, res) {
   }
 }
 
-module.exports = { listRoles, listUsers, updateProfile };
+module.exports = { createUser, listRoles, listUsers, updateProfile };

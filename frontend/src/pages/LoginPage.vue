@@ -43,15 +43,6 @@
           unelevated
         />
       </q-form>
-
-      <div class="q-mt-md text-center">
-        Pas de compte ?
-        <router-link
-          :to="{ name: 'signup' }"
-          class="text-primary text-weight-medium"
-          >S'inscrire</router-link
-        >
-      </div>
     </div>
   </div>
 </template>
