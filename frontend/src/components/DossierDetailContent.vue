@@ -544,7 +544,7 @@
           <!-- =========================
           COMMENTAIRE
           ========================= -->
-          <template v-if="auth.role !== 'i_archive'">
+          <template v-if="auth.role !== 'i_archive' && !isQuickArchive">
             <div class="text-subtitle2 text-weight-bold q-mb-sm">
               Commentaire
             </div>
@@ -843,6 +843,10 @@ import DossierFilePreview from "components/DossierFilePreview.vue";
 
 const props = defineProps({
   dossierId: { type: [Number, String], required: true },
+});
+
+const isQuickArchive = computed(() => {
+  return dossier.value?.archivage_rapide === true;
 });
 
 const emit = defineEmits(["updated"]);
