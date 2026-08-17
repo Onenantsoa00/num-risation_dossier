@@ -21,6 +21,7 @@ async function authenticate(req, res, next) {
         u.date_naissance,
         u.cin,
         u.im,
+        u.actif,
         u.id_roles,
         r.nom AS role
        FROM utilisateur u
@@ -31,6 +32,19 @@ async function authenticate(req, res, next) {
 
     if (!rows[0]) {
       return res.status(401).json({ error: "Utilisateur introuvable" });
+    }
+
+    req.user = rows[0];
+    if (!rows[0]) {
+      return res.status(401).json({
+        error: "Utilisateur introuvable",
+      });
+    }
+
+    if (!rows[0].actif) {
+      return res.status(403).json({
+        error: "Votre compte a été désactivé.",
+      });
     }
 
     req.user = rows[0];

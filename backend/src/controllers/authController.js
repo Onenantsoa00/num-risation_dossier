@@ -43,6 +43,11 @@ async function login(req, res) {
     if (!rows[0]) {
       return res.status(401).json({ error: "Identifiants incorrects" });
     }
+    if (!rows[0].actif) {
+      return res.status(403).json({
+        error: "Votre compte a été désactivé. Contactez l'Administrateur.",
+      });
+    }
 
     const valid = await argon2.verify(rows[0].mdp, mdp);
     if (!valid) {

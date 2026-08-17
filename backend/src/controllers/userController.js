@@ -207,6 +207,7 @@ async function listUsers(req, res) {
         u.cin,
         u.im,
         u.image,
+        u.actif,
         u.id_roles,
         r.nom AS role
       FROM utilisateur u
@@ -223,6 +224,107 @@ async function listUsers(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur récupération des utilisateurs" });
+  }
+}
+
+async function toggleUserStatus(req, res) {
+  try {
+    if (req.user.role !== "Admin") {
+      return res.status(403).json({
+        error: "Seul l'Admin peut modifier le statut d'un utilisateur.",
+      });
+    }
+
+    const userId = Number(req.params.id);
+
+    if (!Number.isInteger(userId)) {
+      return res.status(400).json({
+        error: "Identifiant utilisateur invalide.",
+      });
+    }
+
+    if (userId === req.user.id) {
+      return res.status(400).json({
+        error: "Vous ne pouvez pas désactiver votre propre compte.",
+      });
+    }
+
+    const userResult = await db.query(
+      `
+        SELECT
+          u.id,
+          u.nom,
+          u.prenoms,
+          u.email,
+          u.actif,
+          r.nom AS role
+        FROM utilisateur u
+        LEFT JOIN roles r
+          ON r.id = u.id_roles
+        WHERE u.id = $1
+      `,
+      [userId],
+    );
+
+    const user = userResult.rows[0];
+
+    if (!user) {
+      return res.status(404).json({
+        error: "Utilisateur introuvable.",
+      });
+    }
+
+    const nouvelEtat = !user.actif;
+
+    const { rows } = await db.query(
+      `
+        UPDATE utilisateur
+        SET
+          actif = $1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        RETURNING
+          id,
+          nom,
+          prenoms,
+          email,
+          tel,
+          date_naissance,
+          cin,
+          im,
+          image,
+          id_roles,
+          actif
+      `,
+      [nouvelEtat, userId],
+    );
+
+    await audit({
+      id_user: req.user.id,
+      action: nouvelEtat ? "ACTIVER_UTILISATEUR" : "DESACTIVER_UTILISATEUR",
+      table_name: "utilisateur",
+      record_id: userId,
+      details: {
+        utilisateur: `${user.prenoms} ${user.nom}`,
+        ancien_etat: user.actif,
+        nouvel_etat: nouvelEtat,
+      },
+      ip_address: req.ip,
+    });
+
+    res.json({
+      message: nouvelEtat ? "Utilisateur réactivé." : "Utilisateur désactivé.",
+      user: {
+        ...rows[0],
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: "Erreur modification statut utilisateur.",
+    });
   }
 }
 
@@ -325,4 +427,10 @@ async function updateProfile(req, res) {
   }
 }
 
-module.exports = { createUser, listRoles, listUsers, updateProfile };
+module.exports = {
+  createUser,
+  listRoles,
+  listUsers,
+  updateProfile,
+  toggleUserStatus,
+};

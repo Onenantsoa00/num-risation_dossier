@@ -28,4 +28,11 @@ router.put(
   userCtrl.updateProfile,
 );
 
+router.patch(
+  "/:id/status",
+  authenticate,
+  authorize("Admin"),
+  userCtrl.toggleUserStatus,
+);
+
 module.exports = router;

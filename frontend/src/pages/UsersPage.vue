@@ -1,3 +1,4 @@
+// frontend/src/pages/UsersPage.vue
 <template>
   <q-page padding>
     <div class="page-shell">
@@ -118,9 +119,10 @@
           </q-td>
         </template>
 
-        <!-- ACTION -->
+        <!-- ACTIONS -->
         <template #body-cell-actions="props">
           <q-td :props="props">
+            <!-- Voir les informations -->
             <q-btn
               flat
               round
@@ -130,6 +132,25 @@
               @click="viewUser(props.row)"
             >
               <q-tooltip> Voir les informations </q-tooltip>
+            </q-btn>
+
+            <!-- Restreindre / Réactiver -->
+            <q-btn
+              v-if="props.row.id !== currentUserId"
+              flat
+              round
+              dense
+              :icon="props.row.actif ? 'lock' : 'lock_open'"
+              :color="props.row.actif ? 'negative' : 'positive'"
+              @click="changeUserStatus(props.row)"
+            >
+              <q-tooltip>
+                {{
+                  props.row.actif
+                    ? "Restreindre l'utilisateur"
+                    : "Réactiver l'utilisateur"
+                }}
+              </q-tooltip>
             </q-btn>
           </q-td>
         </template>
@@ -385,6 +406,13 @@
               {{ selectedUser.role }}
             </q-badge>
           </div>
+
+          <div class="detail-row">
+            <span>Statut</span>
+            <q-badge :color="selectedUser.actif ? 'positive' : 'negative'">
+              {{ selectedUser.actif ? "Actif" : "Restreint" }}
+            </q-badge>
+          </div>
         </q-card-section>
 
         <q-card-actions align="right">
@@ -397,10 +425,13 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-
-import { useQuasar } from "quasar";
-
+import { useQuasar, Dialog } from "quasar";
 import { api } from "boot/axios";
+import { useAuthStore } from "stores/auth";
+
+const auth = useAuthStore();
+
+const currentUserId = computed(() => auth.user?.id);
 
 const $q = useQuasar();
 
@@ -484,12 +515,57 @@ const columns = [
   },
 
   {
+    name: "statut",
+    label: "Statut",
+    field: "actif",
+    align: "left",
+  },
+
+  {
     name: "actions",
-    label: "",
+    label: "Actions",
     field: "actions",
     align: "right",
   },
 ];
+
+async function changeUserStatus(user) {
+  const action = user.actif ? "désactiver" : "réactiver";
+
+  Dialog.create({
+    title: "Confirmation",
+    message: `
+      Voulez-vous ${action} le compte
+      <strong>${user.prenoms} ${user.nom}</strong> ?
+    `,
+    html: true,
+    cancel: {
+      label: "Annuler",
+      flat: true,
+    },
+    ok: {
+      label: user.actif ? "Restreindre" : "Réactiver",
+      color: user.actif ? "negative" : "positive",
+    },
+    persistent: true,
+  }).onOk(async () => {
+    try {
+      const { data } = await api.patch(`/users/${user.id}/status`);
+
+      $q.notify({
+        type: user.actif ? "warning" : "positive",
+        message: data.message,
+      });
+
+      await loadUsers();
+    } catch (e) {
+      $q.notify({
+        type: "negative",
+        message: e.response?.data?.error || "Erreur modification du statut.",
+      });
+    }
+  });
+}
 
 /*
  * ============================================================
