@@ -1,3 +1,4 @@
+// frontend/src/pages/DossierCreatePage.vue
 <template>
   <q-page class="dossier-create-page">
     <div class="page-header">
