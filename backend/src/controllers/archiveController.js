@@ -186,7 +186,7 @@ async function archiveDossier(req, res) {
     // --------------------------------------------------------
     // 1. Vérification du rôle
     // --------------------------------------------------------
-    if (!["i_archive", "Admin"].includes(req.user.role)) {
+    if (!["i_archive", "Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({
         error: "Action réservée au service d'archivage",
       });

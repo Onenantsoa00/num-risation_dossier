@@ -46,7 +46,7 @@ const routes = [
         name: "users",
         component: () => import("pages/UsersPage.vue"),
         meta: {
-          roles: ["Admin"],
+          roles: ["Admin", "super_admin"],
         },
       },
     ],

@@ -51,7 +51,9 @@ async function getDossierOr404(id) {
 }
 
 function canSeeDossier(user, dossier) {
-  if (user.role === "Admin") return true;
+  if (["Admin", "super_admin"].includes(user.role)) {
+    return true;
+  }
   if (user.role === "Dispatch" && dossier.id_dispatch === user.id) return true;
   if (user.role === "Verificateur" && dossier.id_verificateur === user.id)
     return true;
@@ -259,7 +261,7 @@ async function getOne(req, res) {
 
 async function create(req, res) {
   try {
-    if (!["Dispatch", "Admin"].includes(req.user.role)) {
+    if (!["Dispatch", "Admin", "super_admin"].includes(req.user.role)) {
       return res
         .status(403)
         .json({ error: "Seul le Dispatch peut importer un dossier" });
@@ -459,20 +461,23 @@ async function comment(req, res) {
 
 async function sendToValidateur(req, res) {
   try {
-    if (!["Verificateur", "Admin"].includes(req.user.role)) {
+    if (!["Verificateur", "Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({ error: "Action réservée au vérificateur" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    if (req.user.role !== "Admin" && dossier.id_verificateur !== req.user.id) {
+    if (
+      !["Admin", "super_admin"].includes(req.user.role) &&
+      dossier.id_verificateur !== req.user.id
+    ) {
       return res
         .status(403)
         .json({ error: "Ce dossier ne vous est pas assigné" });
     }
     if (
       !["EN_VERIFICATION", "RETOUR_DISPATCH"].includes(dossier.statut) &&
-      req.user.role !== "Admin"
+      !["Admin", "super_admin"].includes(req.user.role)
     ) {
       return res
         .status(400)
@@ -530,13 +535,16 @@ async function sendToValidateur(req, res) {
 
 async function decide(req, res) {
   try {
-    if (!["Validateur", "Admin"].includes(req.user.role)) {
+    if (!["Validateur", "Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({ error: "Action réservée au validateur" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
-    if (req.user.role !== "Admin" && dossier.id_validateur !== req.user.id) {
+    if (
+      !["Admin", "super_admin"].includes(req.user.role) &&
+      dossier.id_validateur !== req.user.id
+    ) {
       return res
         .status(403)
         .json({ error: "Ce dossier ne vous est pas assigné" });
@@ -654,31 +662,64 @@ async function decide(req, res) {
 
 async function adminAction(req, res) {
   try {
-    if (req.user.role !== "Admin") {
-      return res.status(403).json({ error: "Réservé à l'admin" });
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({
+        error: "Réservé à l'Admin ou au super_admin",
+      });
     }
 
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
+    }
 
     const { action, commentaire, id_verificateur, id_validateur } = req.body;
+
     if (!commentaire?.trim()) {
-      return res.status(400).json({ error: "Commentaire requis" });
+      return res.status(400).json({
+        error: "Commentaire requis",
+      });
     }
 
     if (action === "verifier") {
       const verifId = id_verificateur || dossier.id_verificateur;
+
       await db.query(
-        `UPDATE dossier SET commentaire = $1, statut = 'EN_VERIFICATION',
-           id_verificateur = COALESCE($2, id_verificateur), updated_at = CURRENT_TIMESTAMP
-         WHERE id = $3`,
+        `
+          UPDATE dossier
+          SET
+            commentaire = $1,
+            statut = 'EN_VERIFICATION',
+            id_verificateur = COALESCE($2, id_verificateur),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $3
+        `,
         [commentaire, verifId, dossier.id],
       );
+
       await db.query(
-        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
-         VALUES ($1, $2, 'VERIFICATION', $3, 'EN_VERIFICATION')`,
+        `
+          INSERT INTO traitement (
+            id_users,
+            id_dossier,
+            type_traitement,
+            commentaire,
+            statut
+          )
+          VALUES (
+            $1,
+            $2,
+            'VERIFICATION',
+            $3,
+            'EN_VERIFICATION'
+          )
+        `,
         [req.user.id, dossier.id, commentaire],
       );
+
       if (verifId) {
         await createNotification({
           id_user: Number(verifId),
@@ -691,22 +732,30 @@ async function adminAction(req, res) {
       req.body.action = action;
       return decide(req, res);
     } else {
-      return res
-        .status(400)
-        .json({ error: "action invalide (verifier|valider|rejeter)" });
+      return res.status(400).json({
+        error: "action invalide (verifier|valider|rejeter)",
+      });
     }
 
     await notifyMentions(commentaire, dossier.id, req.user);
+
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erreur action admin" });
+    console.error("Erreur action admin :", err);
+
+    res.status(500).json({
+      error: "Erreur action admin",
+    });
   }
 }
 
 async function returnToDispatch(req, res) {
   try {
-    if (!["Validateur", "Verificateur", "Admin"].includes(req.user.role)) {
+    if (
+      !["Validateur", "Verificateur", "Admin", "super_admin"].includes(
+        req.user.role,
+      )
+    ) {
       return res.status(403).json({ error: "Accès refusé" });
     }
 
@@ -752,9 +801,10 @@ async function reuploadVersion(req, res) {
   let finalFilePath = null;
 
   try {
-    if (!["Dispatch", "Admin"].includes(req.user.role)) {
+    if (!["Dispatch", "Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({
-        error: "Seul le Dispatch ou l'Admin peut importer une nouvelle version",
+        error:
+          "Seul le Dispatch, l'Admin ou le super_admin peut importer une nouvelle version",
       });
     }
 
@@ -766,7 +816,10 @@ async function reuploadVersion(req, res) {
       });
     }
 
-    if (req.user.role !== "Admin" && dossier.id_dispatch !== req.user.id) {
+    if (
+      !["Admin", "super_admin"].includes(req.user.role) &&
+      dossier.id_dispatch !== req.user.id
+    ) {
       return res.status(403).json({
         error: "Ce dossier ne vous appartient pas",
       });

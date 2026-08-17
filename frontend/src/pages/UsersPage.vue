@@ -84,6 +84,10 @@
                 <div class="text-caption text-grey-7">
                   {{ props.row.email }}
                 </div>
+
+                <div class="text-caption text-grey-7">
+                  # {{ props.row.im || "—" }}
+                </div>
               </div>
             </div>
           </q-td>
@@ -154,7 +158,13 @@
 
             <!-- Restreindre / Réactiver -->
             <q-btn
-              v-if="props.row.id !== currentUserId"
+              v-if="
+                props.row.id !== currentUserId &&
+                !(
+                  props.row.role === 'super_admin' &&
+                  auth.role !== 'super_admin'
+                )
+              "
               flat
               round
               dense
@@ -638,6 +648,7 @@ function initials(user) {
 function roleColor(role) {
   return (
     {
+      super_admin: "deep-purple",
       Admin: "negative",
       Dispatch: "primary",
       Verificateur: "info",
@@ -705,12 +716,17 @@ async function loadRoles() {
   try {
     const { data } = await api.get("/users/roles");
 
-    const rolesAutorises = [
+    const rolesOperationnels = [
       "Dispatch",
       "Verificateur",
       "Validateur",
       "i_archive",
     ];
+
+    const rolesAutorises =
+      auth.role === "super_admin"
+        ? [...rolesOperationnels, "Admin"]
+        : rolesOperationnels;
 
     roleOptions.value = data
       .filter((role) => rolesAutorises.includes(role.nom))

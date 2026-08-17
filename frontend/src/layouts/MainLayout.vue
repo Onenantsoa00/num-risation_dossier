@@ -52,7 +52,7 @@
         </q-item>
 
         <q-item
-          v-if="auth.role === 'Admin'"
+          v-if="['Admin', 'super_admin'].includes(auth.role)"
           clickable
           v-ripple
           :to="{ name: 'users' }"

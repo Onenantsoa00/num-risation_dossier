@@ -16,9 +16,9 @@ async function listRoles(_req, res) {
 
 async function createUser(req, res) {
   try {
-    if (req.user.role !== "Admin") {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({
-        error: "Seul l'Admin peut créer des comptes.",
+        error: "Seul l'Admin ou le super_admin peut créer des comptes.",
       });
     }
 
@@ -64,17 +64,24 @@ async function createUser(req, res) {
 
     const role = roleResult.rows[0];
 
-    const rolesAutorises = [
+    const rolesOperationnels = [
       "Dispatch",
       "Verificateur",
       "Validateur",
       "i_archive",
     ];
 
+    const rolesAutorises =
+      req.user.role === "super_admin"
+        ? [...rolesOperationnels, "Admin"]
+        : rolesOperationnels;
+
     if (!role || !rolesAutorises.includes(role.nom)) {
       return res.status(400).json({
         error:
-          "Le rôle doit être Dispatch, Verificateur, Validateur ou i_archive.",
+          req.user.role === "super_admin"
+            ? "Le rôle doit être Admin, Dispatch, Verificateur, Validateur ou i_archive."
+            : "Le rôle doit être Dispatch, Verificateur, Validateur ou i_archive.",
       });
     }
 
@@ -229,9 +236,11 @@ async function listUsers(req, res) {
 
 async function toggleUserStatus(req, res) {
   try {
-    if (req.user.role !== "Admin") {
+    // Admin et super_admin peuvent restreindre/réactiver
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({
-        error: "Seul l'Admin peut modifier le statut d'un utilisateur.",
+        error:
+          "Seul l'Admin ou le super_admin peut modifier le statut d'un utilisateur.",
       });
     }
 
@@ -243,11 +252,16 @@ async function toggleUserStatus(req, res) {
       });
     }
 
+    // Empêcher un utilisateur de désactiver son propre compte
     if (userId === req.user.id) {
       return res.status(400).json({
         error: "Vous ne pouvez pas désactiver votre propre compte.",
       });
     }
+
+    // ----------------------------------------------------------
+    // Récupérer l'utilisateur AVANT d'utiliser user
+    // ----------------------------------------------------------
 
     const userResult = await db.query(
       `
@@ -256,7 +270,13 @@ async function toggleUserStatus(req, res) {
           u.nom,
           u.prenoms,
           u.email,
+          u.tel,
+          u.date_naissance,
+          u.cin,
+          u.im,
+          u.image,
           u.actif,
+          u.id_roles,
           r.nom AS role
         FROM utilisateur u
         LEFT JOIN roles r
@@ -273,6 +293,21 @@ async function toggleUserStatus(req, res) {
         error: "Utilisateur introuvable.",
       });
     }
+
+    // ----------------------------------------------------------
+    // Règle de sécurité :
+    // un Admin normal ne peut pas restreindre un super_admin
+    // ----------------------------------------------------------
+
+    if (user.role === "super_admin" && req.user.role !== "super_admin") {
+      return res.status(403).json({
+        error: "Un Admin ne peut pas restreindre un super_admin.",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // Inverser l'état
+    // ----------------------------------------------------------
 
     const nouvelEtat = !user.actif;
 
@@ -299,6 +334,10 @@ async function toggleUserStatus(req, res) {
       [nouvelEtat, userId],
     );
 
+    // ----------------------------------------------------------
+    // Audit
+    // ----------------------------------------------------------
+
     await audit({
       id_user: req.user.id,
       action: nouvelEtat ? "ACTIVER_UTILISATEUR" : "DESACTIVER_UTILISATEUR",
@@ -306,11 +345,16 @@ async function toggleUserStatus(req, res) {
       record_id: userId,
       details: {
         utilisateur: `${user.prenoms} ${user.nom}`,
+        role: user.role,
         ancien_etat: user.actif,
         nouvel_etat: nouvelEtat,
       },
       ip_address: req.ip,
     });
+
+    // ----------------------------------------------------------
+    // Réponse
+    // ----------------------------------------------------------
 
     res.json({
       message: nouvelEtat ? "Utilisateur réactivé." : "Utilisateur désactivé.",
@@ -320,7 +364,7 @@ async function toggleUserStatus(req, res) {
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("Erreur toggleUserStatus :", err);
 
     res.status(500).json({
       error: "Erreur modification statut utilisateur.",

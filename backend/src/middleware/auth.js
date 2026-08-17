@@ -58,15 +58,23 @@ async function authenticate(req, res, next) {
 function authorize(...roles) {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ error: "Non authentifié" });
+      return res.status(401).json({
+        error: "Non authentifié",
+      });
     }
-    if (
-      roles.length &&
-      !roles.includes(req.user.role) &&
-      req.user.role !== "Admin"
-    ) {
-      return res.status(403).json({ error: "Accès refusé pour ce rôle" });
+
+    // super_admin possède tous les droits d'un Admin
+    if (req.user.role === "Admin" || req.user.role === "super_admin") {
+      next();
+      return;
     }
+
+    if (roles.length && !roles.includes(req.user.role)) {
+      return res.status(403).json({
+        error: "Accès refusé pour ce rôle",
+      });
+    }
+
     next();
   };
 }
