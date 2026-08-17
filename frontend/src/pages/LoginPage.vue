@@ -69,6 +69,17 @@ async function onSubmit() {
     await auth.login(email.value, mdp.value);
     router.push(route.query.redirect || { name: "dossiers" });
   } catch (e) {
+    if (
+      e.response?.status === 403 &&
+      e.response?.data?.code === "ACCOUNT_RESTRICTED"
+    ) {
+      router.push({
+        name: "account-restricted",
+      });
+
+      return;
+    }
+
     error.value = e.response?.data?.error || "Échec de connexion";
   } finally {
     loading.value = false;

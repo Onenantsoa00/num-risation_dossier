@@ -43,7 +43,8 @@ async function authenticate(req, res, next) {
 
     if (!rows[0].actif) {
       return res.status(403).json({
-        error: "Votre compte a été désactivé.",
+        error: "Votre compte est restreint.",
+        code: "ACCOUNT_RESTRICTED",
       });
     }
 

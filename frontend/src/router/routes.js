@@ -52,6 +52,14 @@ const routes = [
     ],
   },
   {
+    path: "/compte-restreint",
+    name: "account-restricted",
+    component: () => import("pages/AccountRestrictedPage.vue"),
+    meta: {
+      public: true,
+    },
+  },
+  {
     path: "/:catchAll(.*)*",
     component: () => import("pages/ErrorNotFound.vue"),
   },

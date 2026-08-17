@@ -45,7 +45,8 @@ async function login(req, res) {
     }
     if (!rows[0].actif) {
       return res.status(403).json({
-        error: "Votre compte a été désactivé. Contactez l'Administrateur.",
+        error: "Votre compte est restreint.",
+        code: "ACCOUNT_RESTRICTED",
       });
     }
 
