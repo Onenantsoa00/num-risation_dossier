@@ -119,6 +119,24 @@
           </q-td>
         </template>
 
+        <!-- STATUT -->
+        <template #body-cell-statut="props">
+          <q-td :props="props">
+            <q-badge
+              class="status-badge"
+              :class="props.row.actif ? 'status-active' : 'status-inactive'"
+            >
+              <q-icon
+                :name="props.row.actif ? 'check_circle' : 'pause_circle'"
+                size="16px"
+                class="q-mr-xs"
+              />
+
+              {{ props.row.actif ? "Actif" : "Inactif" }}
+            </q-badge>
+          </q-td>
+        </template>
+
         <!-- ACTIONS -->
         <template #body-cell-actions="props">
           <q-td :props="props">
@@ -874,5 +892,22 @@ onMounted(async () => {
   .detail-row > strong {
     text-align: left;
   }
+}
+
+.status-badge {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.status-active {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.status-inactive {
+  background: #fef3c7;
+  color: #b45309;
 }
 </style>
