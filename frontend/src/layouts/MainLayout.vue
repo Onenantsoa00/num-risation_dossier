@@ -28,12 +28,21 @@
 
         <q-btn flat dense no-caps class="q-ml-sm" :to="{ name: 'profil' }">
           <q-avatar
-            size="28px"
+            size="32px"
             color="secondary"
             text-color="white"
-            class="q-mr-sm"
+            class="q-mr-sm profile-avatar"
           >
-            {{ initials }}
+            <img
+              v-if="auth.user?.image"
+              :src="imageUrl(auth.user.image)"
+              alt="Photo de profil"
+              class="profile-avatar__image"
+            />
+
+            <span v-else>
+              {{ initials }}
+            </span>
           </q-avatar>
           <span class="gt-xs">{{ auth.fullName }}</span>
         </q-btn>
@@ -117,14 +126,14 @@
     </q-drawer>
 
     <q-page-container>
-      <router-view />
+      <router-view :key="route.fullPath" />
     </q-page-container>
   </q-layout>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "stores/auth";
 import { useNotificationStore } from "stores/notifications";
 
@@ -132,6 +141,7 @@ const leftDrawer = ref(false);
 const auth = useAuthStore();
 const notif = useNotificationStore();
 const router = useRouter();
+const route = useRoute();
 
 const initials = computed(() => {
   if (!auth.user) return "?";
@@ -140,10 +150,41 @@ const initials = computed(() => {
 
 function logout() {
   notif.stopPolling();
+
   auth.logout();
-  router.push({ name: "login" });
+
+  router.replace({
+    name: "login",
+  });
+}
+
+function imageUrl(image) {
+  if (!image) return null;
+
+  if (/^https?:\/\//.test(image)) {
+    return image;
+  }
+
+  return `http://localhost:3000${image}`;
 }
 
 onMounted(() => notif.startPolling());
 onUnmounted(() => notif.stopPolling());
 </script>
+
+<style>
+.profile-avatar {
+  overflow: hidden;
+}
+
+.profile-avatar__image {
+  width: 100%;
+  height: 100%;
+  display: block;
+
+  object-fit: cover;
+  object-position: center;
+
+  border-radius: 50%;
+}
+</style>

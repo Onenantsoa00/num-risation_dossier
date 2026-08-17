@@ -134,8 +134,48 @@
               popup-content-class="fullscreen-select-popup"
               class="q-mb-md"
             >
-              <template #prepend>
-                <q-icon name="inventory_2" />
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section avatar>
+                    <q-avatar size="40px" color="warning" text-color="white">
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                      />
+                      <span v-else>
+                        {{ initials(scope.opt) }}
+                      </span>
+                    </q-avatar>
+                  </q-item-section>
+
+                  <q-item-section>
+                    <q-item-label>
+                      {{ scope.opt.label }}
+                    </q-item-label>
+
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+
+              <template #selected-item="scope">
+                <q-chip dense class="q-ma-none">
+                  <q-avatar size="28px">
+                    <img
+                      v-if="scope.opt.image"
+                      :src="scope.opt.image"
+                      alt="Photo"
+                    />
+                    <span v-else>
+                      {{ initials(scope.opt) }}
+                    </span>
+                  </q-avatar>
+
+                  {{ scope.opt.label }}
+                </q-chip>
               </template>
             </q-select>
 
@@ -589,13 +629,57 @@
             <q-select
               v-model="idValidateur"
               :options="validateurs"
-              label="Validateur *"
+              label="Validateur"
               outlined
               dense
               emit-value
               map-options
               class="q-mb-sm"
-            />
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section avatar>
+                    <q-avatar size="40px" color="primary" text-color="white">
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                      />
+                      <span v-else>
+                        {{ initials(scope.opt) }}
+                      </span>
+                    </q-avatar>
+                  </q-item-section>
+
+                  <q-item-section>
+                    <q-item-label>
+                      {{ scope.opt.label }}
+                    </q-item-label>
+
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+
+              <template #selected-item="scope">
+                <q-chip dense class="q-ma-none">
+                  <q-avatar size="28px">
+                    <img
+                      v-if="scope.opt.image"
+                      :src="scope.opt.image"
+                      alt="Photo"
+                    />
+                    <span v-else>
+                      {{ initials(scope.opt) }}
+                    </span>
+                  </q-avatar>
+
+                  {{ scope.opt.label }}
+                </q-chip>
+              </template>
+            </q-select>
 
             <q-btn
               color="warning"
@@ -909,8 +993,11 @@ async function loadArchiveurs() {
   });
 
   archiveurs.value = data.map((u) => ({
-    label: `${u.prenoms} ${u.nom} (${u.email})`,
+    label: `${u.prenoms} ${u.nom}`,
     value: u.id,
+    image: u.image,
+    im: u.im,
+    email: u.email,
   }));
 }
 
@@ -1269,9 +1356,18 @@ async function loadValidateurs() {
   const { data } = await api.get("/users", { params: { role: "Validateur" } });
   const admins = await api.get("/users", { params: { role: "Admin" } });
   validateurs.value = [...data, ...admins.data].map((u) => ({
-    label: `${u.prenoms} ${u.nom} (${u.email})`,
+    label: `${u.prenoms} ${u.nom}`,
     value: u.id,
+    image: u.image,
+    im: u.im,
+    email: u.email,
   }));
+}
+
+function initials(user) {
+  if (!user) return "?";
+
+  return `${user.prenoms?.[0] || ""}${user.nom?.[0] || ""}`.toUpperCase();
 }
 
 async function saveComment() {

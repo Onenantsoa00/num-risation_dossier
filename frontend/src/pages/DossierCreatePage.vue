@@ -135,6 +135,64 @@
             input-debounce="200"
             :rules="[(v) => !!v || 'Veuillez sélectionner un vérificateur']"
           >
+            <template #option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section avatar>
+                  <q-avatar
+                    size="40px"
+                    color="primary"
+                    text-color="white"
+                    class="assign-avatar"
+                  >
+                    <img
+                      v-if="scope.opt.image"
+                      :src="imageUrl(scope.opt.image)"
+                      alt="Photo"
+                      class="assign-avatar__image"
+                    />
+
+                    <span v-else>
+                      {{ initials(scope.opt) }}
+                    </span>
+                  </q-avatar>
+                </q-item-section>
+
+                <q-item-section>
+                  <q-item-label>
+                    {{ scope.opt.label }}
+                  </q-item-label>
+
+                  <q-item-label caption>
+                    IM : {{ scope.opt.im || "—" }}
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+
+            <template #selected-item="scope">
+              <q-chip v-if="scope.opt" dense class="q-ma-none">
+                <q-avatar
+                  size="28px"
+                  color="primary"
+                  text-color="white"
+                  class="assign-avatar"
+                >
+                  <img
+                    v-if="scope.opt.image"
+                    :src="imageUrl(scope.opt.image)"
+                    alt="Photo"
+                    class="assign-avatar__image"
+                  />
+
+                  <span v-else>
+                    {{ initials(scope.opt) }}
+                  </span>
+                </q-avatar>
+
+                {{ scope.opt.label }}
+              </q-chip>
+            </template>
+
             <template #prepend>
               <q-icon name="person_search" />
             </template>
@@ -242,8 +300,11 @@ onMounted(async () => {
     const all = [...data, ...admins.data];
 
     verificateurs.value = all.map((u) => ({
-      label: `${u.prenoms} ${u.nom} (${u.email})`,
+      label: `${u.prenoms} ${u.nom}`,
       value: u.id,
+      image: u.image,
+      im: u.im,
+      email: u.email,
     }));
   } catch (e) {
     console.error("Erreur chargement utilisateurs :", e);
@@ -360,6 +421,22 @@ async function submit() {
   } finally {
     loading.value = false;
   }
+}
+
+function imageUrl(image) {
+  if (!image) return null;
+
+  if (/^https?:\/\//.test(image)) {
+    return image;
+  }
+
+  return `http://localhost:3000${image}`;
+}
+
+function initials(user) {
+  if (!user) return "?";
+
+  return `${user.prenoms?.[0] || ""}${user.nom?.[0] || ""}`.toUpperCase();
 }
 </script>
 
@@ -522,6 +599,25 @@ async function submit() {
   .form-panel {
     min-height: auto;
   }
+}
+
+.assign-avatar {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.assign-avatar__image {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+
+  display: block;
+
+  object-fit: cover !important;
+  object-position: center center;
+
+  border-radius: 50%;
 }
 
 @media (max-width: 600px) {

@@ -63,12 +63,13 @@
                 size="40px"
                 color="primary"
                 text-color="white"
-                class="q-mr-sm"
+                class="user-avatar"
               >
                 <img
                   v-if="props.row.image"
-                  :src="props.row.image"
+                  :src="imageUrl(props.row.image)"
                   alt="Photo"
+                  class="user-avatar__image"
                 />
 
                 <span v-else>
@@ -362,12 +363,13 @@
               size="64px"
               color="primary"
               text-color="white"
-              class="q-mr-md"
+              class="user-avatar"
             >
               <img
                 v-if="selectedUser?.image"
-                :src="selectedUser.image"
+                :src="imageUrl(selectedUser.image)"
                 alt="Photo"
+                class="user-avatar__image"
               />
 
               <span v-else>
@@ -452,12 +454,22 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useQuasar, Dialog } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
 
 const auth = useAuthStore();
+
+function imageUrl(image) {
+  if (!image) return null;
+
+  if (/^https?:\/\//.test(image)) {
+    return image;
+  }
+
+  return `http://localhost:3000${image}`;
+}
 
 const currentUserId = computed(() => auth.user?.id);
 
@@ -556,6 +568,12 @@ const columns = [
     align: "right",
   },
 ];
+
+onUnmounted(() => {
+  createDialog.value = false;
+  detailDialog.value = false;
+  selectedUser.value = null;
+});
 
 async function changeUserStatus(user) {
   const action = user.actif ? "désactiver" : "réactiver";
@@ -925,5 +943,24 @@ onMounted(async () => {
 .status-inactive {
   background: #fef3c7;
   color: #b45309;
+}
+
+.user-avatar {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-avatar__image {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+
+  display: block;
+
+  object-fit: cover !important;
+  object-position: center center;
+
+  border-radius: 50%;
 }
 </style>

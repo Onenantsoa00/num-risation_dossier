@@ -1,3 +1,4 @@
+// frontend/src/pages/ProfilePage.vue
 <template>
   <q-page padding>
     <div class="page-shell profile-page">
@@ -124,11 +125,17 @@
 
           <div class="profile-section__body">
             <div class="profile-photo-row">
-              <q-avatar size="88px" color="primary" text-color="white">
+              <q-avatar
+                size="88px"
+                color="primary"
+                text-color="white"
+                class="profile-avatar"
+              >
                 <img
                   v-if="preview || auth.user?.image"
-                  :src="preview || auth.user.image"
+                  :src="preview ? preview : imageUrl(auth.user.image)"
                   alt="Photo de profil"
+                  class="profile-avatar__image"
                 />
 
                 <span v-else>
@@ -213,7 +220,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
@@ -254,6 +261,23 @@ onMounted(() => {
 
   form.cin = auth.user.cin || "";
   form.im = auth.user.im || "";
+});
+
+function imageUrl(image) {
+  if (!image) return null;
+
+  if (/^https?:\/\//.test(image)) {
+    return image;
+  }
+
+  return `http://localhost:3000${image}`;
+}
+
+onUnmounted(() => {
+  if (preview.value) {
+    URL.revokeObjectURL(preview.value);
+    preview.value = null;
+  }
 });
 
 function onImage(file) {
@@ -398,5 +422,24 @@ async function save() {
   .profile-photo-input {
     max-width: none;
   }
+}
+
+.profile-avatar {
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.profile-avatar__image {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+
+  display: block;
+
+  object-fit: cover !important;
+  object-position: center center;
+
+  border-radius: 50%;
 }
 </style>
