@@ -27,22 +27,33 @@ function publicUser(row) {
 
 async function login(req, res) {
   try {
-    const { email, mdp } = req.body;
-    if (!email || !mdp) {
-      return res.status(400).json({ error: "email et mdp requis" });
+    const { cin, mdp } = req.body;
+
+    if (!cin || !mdp) {
+      return res.status(400).json({
+        error: "CIN et mot de passe requis",
+      });
     }
+
+    const cinNormalized = cin.trim();
 
     const { rows } = await db.query(
       `SELECT u.*, r.nom AS role
        FROM utilisateur u
        LEFT JOIN roles r ON r.id = u.id_roles
-       WHERE LOWER(u.email) = LOWER($1)`,
-      [email],
+       WHERE u.cin = $1`,
+      [cinNormalized],
     );
 
     if (!rows[0]) {
-      return res.status(401).json({ error: "Identifiants incorrects" });
+      return res.status(401).json({
+        error: "CIN ou mot de passe incorrect",
+      });
     }
+
+    /*
+     * Compte restreint
+     */
     if (!rows[0].actif) {
       return res.status(403).json({
         error: "Votre compte est restreint.",
@@ -50,24 +61,46 @@ async function login(req, res) {
       });
     }
 
+    /*
+     * Vérification du mot de passe
+     */
     const valid = await argon2.verify(rows[0].mdp, mdp);
+
     if (!valid) {
-      return res.status(401).json({ error: "Identifiants incorrects" });
+      return res.status(401).json({
+        error: "CIN ou mot de passe incorrect",
+      });
     }
 
+    /*
+     * Audit
+     */
     await audit({
       id_user: rows[0].id,
       action: "LOGIN",
       table_name: "utilisateur",
       record_id: rows[0].id,
+      details: {
+        authentication: "CIN",
+      },
       ip_address: req.ip,
     });
 
+    /*
+     * JWT
+     */
     const token = signToken(rows[0].id);
-    res.json({ token, user: publicUser(rows[0]) });
+
+    res.json({
+      token,
+      user: publicUser(rows[0]),
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erreur lors de la connexion" });
+
+    res.status(500).json({
+      error: "Erreur lors de la connexion",
+    });
   }
 }
 

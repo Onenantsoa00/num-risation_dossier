@@ -6,13 +6,17 @@
 
       <q-form @submit.prevent="onSubmit" class="q-gutter-md">
         <q-input
-          v-model="email"
-          type="email"
-          label="Email"
+          v-model="cin"
+          label="CIN"
           outlined
           dense
-          :rules="[(val) => !!val || 'Requis']"
-        />
+          maxlength="12"
+          :rules="[(val) => !!val || 'Le CIN est requis']"
+        >
+          <template #prepend>
+            <q-icon name="badge" />
+          </template>
+        </q-input>
         <q-input
           v-model="mdp"
           :type="showPwd ? 'text' : 'password'"
@@ -56,7 +60,7 @@ const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 
-const email = ref("");
+const cin = ref("");
 const mdp = ref("");
 const showPwd = ref(false);
 const loading = ref(false);
@@ -65,9 +69,15 @@ const error = ref("");
 async function onSubmit() {
   loading.value = true;
   error.value = "";
+
   try {
-    await auth.login(email.value, mdp.value);
-    router.push(route.query.redirect || { name: "dossiers" });
+    await auth.login(cin.value.trim(), mdp.value);
+
+    router.push(
+      route.query.redirect || {
+        name: "dossiers",
+      },
+    );
   } catch (e) {
     if (
       e.response?.status === 403 &&

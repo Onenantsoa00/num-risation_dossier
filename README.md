@@ -55,14 +55,14 @@ npm run dev            # http://localhost:9000
 
 ## Comptes de démonstration
 
-| Rôle         | Email                   | Mot de passe   |
-| ------------ | ----------------------- | -------------- |
-| Admin        | admin@ordsec.local      | Admin123!      |
-| Dispatch     | dispatch@ordsec.local   | Dispatch123!   |
-| Vérificateur | verif@ordsec.local      | Verif123!      |
-| Validateur   | valid@ordsec.local      | Valid123!      |
-| i_archive    | iarchive@ordsec.local   | iarchive123!   |
-| super_admin  | superadmin@ordsec.local | superadmin123! |
+| Rôle         | Email        | Mot de passe   |
+| ------------ | ------------ | -------------- |
+| Admin        | test         | Admin123!      |
+| Dispatch     | 101000000001 | Dispatch123!   |
+| Vérificateur | 101000000002 | Verif123!      |
+| Validateur   | 101000000003 | Valid123!      |
+| i_archive    | 123456789012 | iarchive123!   |
+| super_admin  | 120394       | superadmin123! |
 
 ## Workflow
 
