@@ -68,7 +68,6 @@
               outlined
               autogrow
               label="Votre commentaire"
-              hint="Mentionnez @email@domaine.com"
               class="q-mb-md"
             />
 
@@ -117,7 +116,6 @@
               outlined
               autogrow
               label="Votre commentaire"
-              hint="Mentionnez @email@domaine.com"
               class="q-mb-md"
             />
 
@@ -283,15 +281,6 @@
               <q-icon name="admin_panel_settings" />
               <span>Actions administrateur</span>
             </div>
-
-            <q-input
-              v-model="commentaire"
-              type="textarea"
-              outlined
-              autogrow
-              label="Commentaire"
-              class="q-mb-md"
-            />
 
             <div class="row q-col-gutter-md">
               <div class="col-12 col-md-4">
@@ -596,7 +585,6 @@
               outlined
               autogrow
               label="Votre commentaire"
-              hint="Mentionnez @email@domaine.com"
               class="q-mb-sm"
             />
 
