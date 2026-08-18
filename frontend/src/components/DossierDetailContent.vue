@@ -278,7 +278,7 @@
           <!-- =========================
          ADMIN
          ========================= -->
-          <template v-else-if="auth.role === 'Admin'">
+          <template v-else-if="['Admin', 'super_admin'].includes(auth.role)">
             <div class="action-role-title">
               <q-icon name="admin_panel_settings" />
               <span>Actions administrateur</span>
@@ -437,6 +437,46 @@
                 </div>
               </div>
 
+              <!-- =========================
+     INFORMATIONS D'ARCHIVAGE
+     ========================= -->
+
+              <template v-if="showArchiveInfo">
+                <div class="col-6">
+                  <div class="text-caption text-grey-7">Compte PC</div>
+
+                  <div class="text-body2 text-weight-medium">
+                    {{ dossier.compte_pc || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6">
+                  <div class="text-caption text-grey-7">
+                    Date fin du dossier
+                  </div>
+
+                  <div class="text-body2 text-weight-medium">
+                    {{ formatDateOnly(dossier.date_fin_dossier) }}
+                  </div>
+                </div>
+
+                <div class="col-6">
+                  <div class="text-caption text-grey-7">Réf. écriture</div>
+
+                  <div class="text-body2 text-weight-medium">
+                    {{ dossier.ref_ecriture || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6">
+                  <div class="text-caption text-grey-7">IM de l'archiveur</div>
+
+                  <div class="text-body2 text-weight-medium">
+                    {{ dossier.archiveur_im || "—" }}
+                  </div>
+                </div>
+              </template>
+
               <div class="col-12">
                 <div class="text-caption text-grey-7">Fichier</div>
 
@@ -449,53 +489,6 @@
               </div>
             </div>
           </div>
-
-          <!-- =========================
-          INFORMATIONS ARCHIVAGE
-          ========================= -->
-          <template v-if="auth.role === 'i_archive'">
-            <q-separator class="q-my-md" />
-
-            <div class="col-12">
-              <div class="text-subtitle2 text-weight-bold q-mb-md">
-                Informations d'archivage
-              </div>
-            </div>
-
-            <div class="col-6">
-              <div class="text-caption text-grey-7">
-                Compte de prise en charge
-              </div>
-
-              <div class="text-body2 text-weight-medium">
-                {{ dossier.compte_pc || "—" }}
-              </div>
-            </div>
-
-            <div class="col-6">
-              <div class="text-caption text-grey-7">Date fin du dossier</div>
-
-              <div class="text-body2 text-weight-medium">
-                {{ formatDateOnly(dossier.date_fin_dossier) }}
-              </div>
-            </div>
-
-            <div class="col-6">
-              <div class="text-caption text-grey-7">Réf. écriture</div>
-
-              <div class="text-body2 text-weight-medium">
-                {{ dossier.ref_ecriture || "—" }}
-              </div>
-            </div>
-
-            <div class="col-6">
-              <div class="text-caption text-grey-7">IM de l'archiveur</div>
-
-              <div class="text-body2 text-weight-medium">
-                # {{ dossier.archiveur_im || "—" }}
-              </div>
-            </div>
-          </template>
 
           <!-- =========================
           I_ARCHIVE
@@ -584,7 +577,7 @@
           <!-- =========================
           COMMENTAIRE
           ========================= -->
-          <template v-if="auth.role !== 'i_archive' && !isQuickArchive">
+          <template v-if="!hideCommentSection">
             <div class="text-subtitle2 text-weight-bold q-mb-sm">
               Commentaire
             </div>
@@ -929,10 +922,6 @@ const props = defineProps({
   dossierId: { type: [Number, String], required: true },
 });
 
-const isQuickArchive = computed(() => {
-  return dossier.value?.archivage_rapide === true;
-});
-
 const emit = defineEmits(["updated"]);
 
 const $q = useQuasar();
@@ -980,6 +969,21 @@ const canArchive = computed(() => {
 });
 
 const isDocumentFullscreen = ref(false);
+
+const isQuickArchive = computed(() => {
+  return dossier.value?.archivage_rapide === true;
+});
+
+const showArchiveInfo = computed(() => {
+  return ["i_archive", "Admin", "super_admin"].includes(auth.role);
+});
+
+const hideCommentSection = computed(() => {
+  return (
+    ["i_archive", "Admin", "super_admin"].includes(auth.role) ||
+    isQuickArchive.value
+  );
+});
 
 function onDocumentFullscreen(value) {
   isDocumentFullscreen.value = value;
