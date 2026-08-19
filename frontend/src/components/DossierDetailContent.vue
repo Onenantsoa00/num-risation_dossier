@@ -220,55 +220,134 @@
           </template>
 
           <!-- =========================
-         I_ARCHIVE
-         ========================= -->
+     I_ARCHIVE
+========================= -->
           <template v-else-if="auth.role === 'i_archive'">
             <div class="action-role-title">
               <q-icon name="inventory_2" />
-              <span>Actions d'archivage</span>
+              <span>
+                {{
+                  isQuickArchive ? "Archivage rapide" : "Actions d'archivage"
+                }}
+              </span>
             </div>
 
-            <div class="row q-col-gutter-md items-end">
-              <div class="col-12 col-md-3">
-                <q-input
-                  v-model="archiveForm.compte_pc"
-                  label="Compte de prise en charge *"
-                  outlined
-                  dense
-                  maxlength="15"
-                />
+            <!-- =========================
+       RÉSUMÉ DU DOSSIER
+  ========================== -->
+            <div class="fullscreen-archive-summary">
+              <div class="fullscreen-summary-title">
+                Informations du dossier
               </div>
 
-              <div class="col-12 col-md-3">
-                <q-input
-                  v-model="archiveForm.date_fin_dossier"
-                  label="Date fin du dossier *"
-                  type="date"
-                  outlined
-                  dense
-                />
+              <div class="row q-col-gutter-sm">
+                <div class="col-6 col-md-2">
+                  <div class="fullscreen-summary-label">Exercice</div>
+                  <div class="fullscreen-summary-value">
+                    {{ dossier.exo_budgetaire || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <div class="fullscreen-summary-label">N° BE</div>
+                  <div class="fullscreen-summary-value">
+                    {{ dossier.n_be || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <div class="fullscreen-summary-label">N° ORD</div>
+                  <div class="fullscreen-summary-value">
+                    {{ dossier.n_ord || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <div class="fullscreen-summary-label">N° compte</div>
+                  <div class="fullscreen-summary-value">
+                    {{ dossier.n_compte || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <div class="fullscreen-summary-label">N° SOA</div>
+                  <div class="fullscreen-summary-value">
+                    {{ dossier.n_soa || "—" }}
+                  </div>
+                </div>
+
+                <div class="col-6 col-md-2">
+                  <div class="fullscreen-summary-label">IM archiveur</div>
+                  <div class="fullscreen-summary-value">
+                    {{ dossier.archiveur_im || "—" }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- =========================
+       CHAMPS D'ARCHIVAGE
+  ========================== -->
+            <div class="fullscreen-archive-form">
+              <div class="fullscreen-summary-title q-mb-sm">
+                Informations d'archivage
               </div>
 
-              <div class="col-12 col-md-3">
-                <q-input
-                  v-model="archiveForm.ref_ecriture"
-                  label="Référence d'écriture *"
-                  outlined
-                  dense
-                  maxlength="15"
-                />
-              </div>
+              <div class="row q-col-gutter-md items-end">
+                <!-- COMPTE PC -->
+                <div class="col-12 col-md-3">
+                  <q-input
+                    v-model="archiveForm.compte_pc"
+                    label="Compte de prise en charge *"
+                    outlined
+                    dense
+                    maxlength="15"
+                  />
+                </div>
 
-              <div class="col-12 col-md-3">
-                <q-btn
-                  color="positive"
-                  icon="inventory_2"
-                  label="Mettre en archive"
-                  class="full-width"
-                  unelevated
-                  :loading="archiveLoading"
-                  @click="archiveDossier"
-                />
+                <!-- DATE FIN -->
+                <div class="col-12 col-md-3">
+                  <q-input
+                    v-model="archiveForm.date_fin_dossier"
+                    label="Date fin du dossier *"
+                    type="date"
+                    outlined
+                    dense
+                  />
+                </div>
+
+                <!-- RÉF ÉCRITURE -->
+                <div class="col-12 col-md-3">
+                  <q-input
+                    v-model="archiveForm.ref_ecriture"
+                    label="Référence d'écriture *"
+                    outlined
+                    dense
+                    maxlength="15"
+                  />
+                </div>
+
+                <!-- BOUTON -->
+                <div class="col-12 col-md-3">
+                  <q-btn
+                    color="positive"
+                    icon="inventory_2"
+                    :label="
+                      isQuickArchive
+                        ? 'Archiver directement'
+                        : 'Mettre en archive'
+                    "
+                    class="full-width"
+                    unelevated
+                    :loading="archiveLoading"
+                    :disable="
+                      !archiveForm.compte_pc.trim() ||
+                      !archiveForm.date_fin_dossier ||
+                      !archiveForm.ref_ecriture.trim()
+                    "
+                    @click="archiveDossier"
+                  />
+                </div>
               </div>
             </div>
           </template>
@@ -1095,7 +1174,7 @@ const canDecide = computed(() => {
 const canReuploadVersion = computed(() => {
   if (!dossier.value) return false;
 
-  if (!["Dispatch", "Admin"].includes(auth.role)) {
+  if (!["Dispatch", "Admin", "super_admin"].includes(auth.role)) {
     return false;
   }
 
@@ -1598,5 +1677,39 @@ defineExpose({ reload: load });
 <style scoped>
 :global(.fullscreen-select-popup) {
   z-index: 30000 !important;
+}
+
+.fullscreen-archive-summary {
+  background: #f7f8fa;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.fullscreen-archive-form {
+  background: #ffffff;
+}
+
+.fullscreen-summary-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.fullscreen-summary-label {
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.fullscreen-summary-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

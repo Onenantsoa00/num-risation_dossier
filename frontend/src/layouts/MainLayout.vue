@@ -323,15 +323,13 @@ function logout() {
 // ============================================================
 
 function imageUrl(image) {
-  if (!image) {
-    return null;
-  }
+  if (!image) return null;
 
   if (/^https?:\/\//.test(image)) {
     return image;
   }
 
-  return `http://localhost:3000${image}`;
+  return image;
 }
 
 // ============================================================

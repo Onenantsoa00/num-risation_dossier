@@ -87,3 +87,16 @@ database/schema.sql
 backend/src/
 frontend/src/
 ```
+
+## pendant le developpement
+
+git checkout dev
+git add .
+git commit -m "Nouvelle fonctionnalité"
+git push origin dev
+
+## version stable
+
+git checkout main
+git merge dev
+git push origin main

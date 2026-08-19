@@ -1,38 +1,218 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
+require("dotenv").config();
 
-const authRoutes = require('./routes/auth');
-const userRoutes = require('./routes/users');
-const dossierRoutes = require('./routes/dossiers');
-const notificationRoutes = require('./routes/notifications');
-const archiveRoutes = require('./routes/archives');
+const express = require("express");
+const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
+
+const authRoutes = require("./routes/auth");
+const userRoutes = require("./routes/users");
+const dossierRoutes = require("./routes/dossiers");
+const notificationRoutes = require("./routes/notifications");
+const archiveRoutes = require("./routes/archives");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:9000',
-  credentials: true,
-}));
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
+
+/*
+ * ============================================================
+ * CHEMINS
+ * ============================================================
+ */
+
+// Backend
+const backendDir = path.join(__dirname, "..");
+
+// Frontend Quasar en production
+const frontendDist = path.resolve(backendDir, "../frontend/dist/spa");
+
+// Uploads
+const uploadsDir = path.join(backendDir, "uploads");
+
+/*
+ * ============================================================
+ * CORS
+ * ============================================================
+ *
+ * En développement :
+ *   http://localhost:9000
+ *
+ * En production locale :
+ *   le frontend est servi par Express lui-même,
+ *   donc l'origine est la même et CORS n'est normalement
+ *   pas nécessaire pour le navigateur.
+ *
+ * On garde cependant CORS pour les appels venant du mode dev.
+ * ============================================================
+ */
+
+const allowedOrigins = [
+  "http://localhost:9000",
+  "http://127.0.0.1:9000",
+  process.env.CORS_ORIGIN,
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      /*
+       * Les requêtes sans Origin peuvent être :
+       * curl, Postman, serveur à serveur, etc.
+       */
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      /*
+       * En développement, on autorise les origines connues.
+       */
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      /*
+       * En production LAN, le frontend et l'API ont la
+       * même origine, donc cette vérification ne bloque pas
+       * les appels navigateur vers /api.
+       *
+       * On accepte également les IP du réseau local.
+       */
+      if (
+        /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin) ||
+        /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin) ||
+        /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(
+          origin,
+        )
+      ) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Origine non autorisée par CORS."));
+    },
+
+    credentials: true,
+  }),
+);
+
+/*
+ * ============================================================
+ * MIDDLEWARES
+ * ============================================================
+ */
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'gestion-dossiers' }));
+/*
+ * ============================================================
+ * FICHIERS UPLOADS
+ * ============================================================
+ */
 
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/dossiers', dossierRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/archives', archiveRoutes);
+app.use(
+  "/uploads",
+  express.static(uploadsDir, {
+    etag: false,
+    lastModified: false,
+    cacheControl: false,
+  }),
+);
+
+/*
+ * ============================================================
+ * HEALTH CHECK
+ * ============================================================
+ */
+
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "gestion-dossiers",
+    environment:
+      process.env.NODE_ENV === "production" ? "production" : "development",
+  });
+});
+
+/*
+ * ============================================================
+ * ROUTES API
+ * ============================================================
+ */
+
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/dossiers", dossierRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/archives", archiveRoutes);
+
+/*
+ * ============================================================
+ * FRONTEND QUASAR EN PRODUCTION
+ * ============================================================
+ *
+ * Seulement si le build Quasar existe.
+ *
+ * En développement Ubuntu avec "quasar dev",
+ * ce dossier peut ne pas exister et ce n'est pas un problème.
+ * ============================================================
+ */
+
+const frontendAvailable = fs.existsSync(path.join(frontendDist, "index.html"));
+
+if (frontendAvailable) {
+  console.log(`Frontend Quasar détecté : ${frontendDist}`);
+
+  /*
+   * Fichiers statiques du build Quasar
+   */
+  app.use(express.static(frontendDist));
+
+  /*
+   * Fallback Vue Router / Quasar SPA.
+   *
+   * IMPORTANT :
+   * On ne renvoie index.html que pour les routes
+   * qui ne sont pas déjà des routes API.
+   */
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) {
+      return next();
+    }
+
+    return res.sendFile(path.join(frontendDist, "index.html"));
+  });
+}
+
+/*
+ * ============================================================
+ * GESTION DES ERREURS
+ * ============================================================
+ */
 
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({ error: err.message || 'Erreur serveur' });
+
+  if (res.headersSent) {
+    return;
+  }
+
+  res.status(500).json({
+    error: err.message || "Erreur serveur",
+  });
 });
 
-app.listen(PORT, () => {
-  console.log(`API ORDSEC démarrée sur http://localhost:${PORT}`);
+/*
+ * ============================================================
+ * DÉMARRAGE SERVEUR
+ * ============================================================
+ */
+
+app.listen(PORT, HOST, () => {
+  console.log(`API ORDSEC démarrée sur http://${HOST}:${PORT}`);
+
+  if (frontendAvailable) {
+    console.log(`Application disponible sur http://localhost:${PORT}`);
+  }
 });
