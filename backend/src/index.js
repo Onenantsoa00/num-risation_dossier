@@ -164,23 +164,22 @@ const frontendAvailable = fs.existsSync(path.join(frontendDist, "index.html"));
 if (frontendAvailable) {
   console.log(`Frontend Quasar détecté : ${frontendDist}`);
 
-  /*
-   * Fichiers statiques du build Quasar
-   */
+  // Fichiers statiques du build Quasar
   app.use(express.static(frontendDist));
 
-  /*
-   * Fallback Vue Router / Quasar SPA.
-   *
-   * IMPORTANT :
-   * On ne renvoie index.html que pour les routes
-   * qui ne sont pas déjà des routes API.
-   */
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) {
+  // Fallback SPA pour Vue Router
+  app.use((req, res, next) => {
+    // Ne jamais intercepter les routes API
+    if (req.path.startsWith("/api/")) {
       return next();
     }
 
+    // Ne jamais intercepter les fichiers uploadés
+    if (req.path.startsWith("/uploads/")) {
+      return next();
+    }
+
+    // Pour toute autre route, renvoyer index.html
     return res.sendFile(path.join(frontendDist, "index.html"));
   });
 }
