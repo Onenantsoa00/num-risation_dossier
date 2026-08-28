@@ -100,3 +100,80 @@ git push origin dev
 git checkout main
 git merge dev
 git push origin main
+
+## sur windows
+
+cd C:\numerisation_dossier
+git checkout main
+git pull origin main
+
+## lien pour accéder au application
+
+http://192.168.137.1:3000
+
+| Compte      | CIN            | Mot de passe      |
+| ----------- | -------------- | ----------------- |
+| super_admin(trésorier) | `100000000001` | `SuperAdmin@2026` |
+| Admin 1 (chef Fortuner)    | `100000000002` | `Admin@2026-01`   |
+| Admin 2 (chef Harijaona)    | `100000000003` | `Admin@2026-02`   |
+| Admin 3 (chef Sariaka)    | `100000000004` | `Admin@2026-03`   |
+
+Windows + R : taskschd.msc
+
+
+
+"1. Vérifier les services sur le serveur
+
+Sur le serveur Ubuntu :
+
+systemctl is-active postgresql
+
+doit afficher :
+
+active
+
+Puis :
+
+systemctl is-active ordsec-backend
+
+doit afficher :
+
+active
+2. Tester l'API
+
+Toujours sur le serveur :
+
+curl -i http://127.0.0.1:3000/api/health
+
+Tu dois obtenir :
+
+HTTP/1.1 200 OK
+
+et :
+
+{"ok":true,"service":"gestion-dossiers"}
+
+Tu l'as déjà testé et ça fonctionne. ✅"
+
+
+"3. Tester avec l'adresse IP du serveur
+
+C'est maintenant le test important.
+
+Sur le serveur, fais :
+
+ip -br addr
+
+Tu dois retrouver ton Ethernet avec :
+
+enp3s0    UP    192.168.86.200/24
+
+Ensuite :
+
+curl -i http://192.168.86.200:3000/api/health
+
+Tu dois obtenir :
+
+HTTP/1.1 200 OK
+
+Si ça fonctionne, cela signifie que Node accepte bien les connexions sur l'adresse réseau."

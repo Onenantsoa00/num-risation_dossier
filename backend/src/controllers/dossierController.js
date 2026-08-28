@@ -58,28 +58,68 @@ async function getDossierOr404(id) {
 }
 
 function canSeeDossier(user, dossier) {
+  // ============================================================
+  // 1. ADMIN / SUPER ADMIN
+  // ============================================================
   if (["Admin", "super_admin"].includes(user.role)) {
     return true;
   }
-  if (user.role === "Dispatch" && dossier.id_dispatch === user.id) return true;
-  if (user.role === "Verificateur" && dossier.id_verificateur === user.id)
+
+  // ============================================================
+  // 2. DOSSIERS ARCHIVÉS
+  // ============================================================
+  // Tous les utilisateurs authentifiés peuvent consulter
+  // le détail d'un dossier depuis les archives.
+  //
+  // Cela inclut également les dossiers créés par
+  // "Archivage Rapide".
+  // ============================================================
+  if (dossier.statut === "ARCHIVE") {
     return true;
+  }
+
+  // ============================================================
+  // 3. DISPATCH
+  // ============================================================
+  if (user.role === "Dispatch" && dossier.id_dispatch === user.id) {
+    return true;
+  }
+
+  // ============================================================
+  // 4. VERIFICATEUR
+  // ============================================================
+  if (user.role === "Verificateur" && dossier.id_verificateur === user.id) {
+    return true;
+  }
+
+  // ============================================================
+  // 5. I_ARCHIVE
+  // ============================================================
   if (
     user.role === "i_archive" &&
-    ["VALIDE", "ARCHIVE"].includes(dossier.statut) &&
+    dossier.statut === "VALIDE" &&
     dossier.id_archiveur === user.id
   ) {
     return true;
   }
-  if (user.role === "Validateur" && dossier.id_validateur === user.id)
+
+  // ============================================================
+  // 6. VALIDATEUR
+  // ============================================================
+  if (user.role === "Validateur" && dossier.id_validateur === user.id) {
     return true;
-  // Dispatch voit aussi les retours
+  }
+
+  // ============================================================
+  // 7. DISPATCH : dossiers retournés / validés
+  // ============================================================
   if (
     user.role === "Dispatch" &&
-    ["RETOUR_DISPATCH", "VALIDE", "REJETE", "ARCHIVE"].includes(dossier.statut)
+    ["RETOUR_DISPATCH", "VALIDE", "REJETE"].includes(dossier.statut)
   ) {
     return dossier.id_dispatch === user.id;
   }
+
   return false;
 }
 
@@ -87,7 +127,7 @@ async function list(req, res) {
   try {
     const { statut, q } = req.query;
     const params = [];
-    let where = "WHERE 1=1";
+    let where = "WHERE d.statut <> 'ARCHIVE'";
     let i = 1;
 
     if (req.user.role === "Dispatch") {
@@ -430,39 +470,130 @@ async function create(req, res) {
 async function comment(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
-    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    if (!dossier) {
+      return res.status(404).json({
+        error: "Dossier introuvable",
+      });
+    }
+
+    // ------------------------------------------------------------
+    // 1. Vérifier que l'utilisateur peut voir le dossier
+    // ------------------------------------------------------------
     if (!canSeeDossier(req.user, dossier)) {
-      return res.status(403).json({ error: "Accès refusé" });
+      return res.status(403).json({
+        error: "Accès refusé",
+      });
     }
 
+    // ------------------------------------------------------------
+    // 2. Vérifier qui a le droit de commenter selon le statut
+    // ------------------------------------------------------------
+    const role = req.user.role;
+
+    let roleAutorise = false;
+
+    switch (dossier.statut) {
+      case "EN_VERIFICATION":
+        // Seul le Vérificateur affecté au dossier peut commenter
+        roleAutorise =
+          role === "Verificateur" && dossier.id_verificateur === req.user.id;
+        break;
+
+      case "EN_VALIDATION":
+        // Seul le Validateur affecté au dossier peut commenter
+        roleAutorise =
+          role === "Validateur" && dossier.id_validateur === req.user.id;
+        break;
+
+      case "RETOUR_DISPATCH":
+        // Seul le Dispatch affecté au dossier peut commenter
+        roleAutorise =
+          role === "Dispatch" && dossier.id_dispatch === req.user.id;
+        break;
+
+      default:
+        roleAutorise = false;
+        break;
+    }
+
+    if (!roleAutorise) {
+      return res.status(403).json({
+        error:
+          "Vous n'êtes pas autorisé à commenter ce dossier dans son statut actuel.",
+      });
+    }
+
+    // ------------------------------------------------------------
+    // 3. Vérifier le commentaire
+    // ------------------------------------------------------------
     const { commentaire } = req.body;
+
     if (!commentaire?.trim()) {
-      return res.status(400).json({ error: "Commentaire requis" });
+      return res.status(400).json({
+        error: "Commentaire requis",
+      });
     }
 
-    // Met à jour le commentaire courant du dossier
+    const commentaireFinal = commentaire.trim();
+
+    // ------------------------------------------------------------
+    // 4. Mettre à jour le commentaire courant du dossier
+    // ------------------------------------------------------------
     await db.query(
-      `UPDATE dossier SET commentaire = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-      [commentaire, dossier.id],
+      `
+        UPDATE dossier
+        SET
+          commentaire = $1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+      `,
+      [commentaireFinal, dossier.id],
     );
 
+    // ------------------------------------------------------------
+    // 5. Déterminer le type de traitement
+    // ------------------------------------------------------------
     let type = "VERIFICATION";
-    if (req.user.role === "Validateur" || req.user.role === "Admin")
-      type = "VALIDATION";
-    if (req.user.role === "Dispatch") type = "DISPATCH";
 
+    if (role === "Validateur") {
+      type = "VALIDATION";
+    } else if (role === "Dispatch") {
+      type = "DISPATCH";
+    }
+
+    // ------------------------------------------------------------
+    // 6. Enregistrer le commentaire dans l'historique
+    // ------------------------------------------------------------
     await db.query(
-      `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, dossier.id, type, commentaire, dossier.statut],
+      `
+        INSERT INTO traitement (
+          id_users,
+          id_dossier,
+          type_traitement,
+          commentaire,
+          statut
+        )
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [req.user.id, dossier.id, type, commentaireFinal, dossier.statut],
     );
 
-    await notifyMentions(commentaire, dossier.id, req.user);
+    // ------------------------------------------------------------
+    // 7. Notifications des mentions
+    // ------------------------------------------------------------
+    await notifyMentions(commentaireFinal, dossier.id, req.user);
 
+    // ------------------------------------------------------------
+    // 8. Retourner le dossier mis à jour
+    // ------------------------------------------------------------
     res.json(await getDossierOr404(dossier.id));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erreur commentaire" });
+
+    res.status(500).json({
+      error: "Erreur commentaire",
+    });
   }
 }
 

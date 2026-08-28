@@ -82,7 +82,61 @@
                   emit-value
                   map-options
                   popup-content-class="fullscreen-select-popup"
-                />
+                >
+                  <!-- OPTION DANS LA LISTE -->
+                  <template #option="scope">
+                    <q-item v-bind="scope.itemProps">
+                      <q-item-section avatar>
+                        <q-avatar
+                          size="42px"
+                          color="primary"
+                          text-color="white"
+                        >
+                          <img
+                            v-if="scope.opt.image"
+                            :src="scope.opt.image"
+                            alt="Photo"
+                            @error="$event.target.style.display = 'none'"
+                          />
+
+                          <span v-else>
+                            {{ initials(scope.opt) }}
+                          </span>
+                        </q-avatar>
+                      </q-item-section>
+
+                      <q-item-section>
+                        <q-item-label>
+                          {{ scope.opt.label }}
+                        </q-item-label>
+
+                        <q-item-label caption>
+                          IM : {{ scope.opt.im || "—" }}
+                        </q-item-label>
+                      </q-item-section>
+                    </q-item>
+                  </template>
+
+                  <!-- PERSONNE SÉLECTIONNÉE -->
+                  <template #selected-item="scope">
+                    <q-chip dense class="q-ma-none">
+                      <q-avatar size="28px" color="primary" text-color="white">
+                        <img
+                          v-if="scope.opt.image"
+                          :src="scope.opt.image"
+                          alt="Photo"
+                          @error="$event.target.style.display = 'none'"
+                        />
+
+                        <span v-else>
+                          {{ initials(scope.opt) }}
+                        </span>
+                      </q-avatar>
+
+                      {{ scope.opt.label }}
+                    </q-chip>
+                  </template>
+                </q-select>
               </div>
 
               <div class="col-12 col-md-4">
@@ -618,16 +672,6 @@
               </template>
             </q-input>
 
-            <!-- Motif -->
-            <q-input
-              v-model="archiveForm.motif"
-              label="Observation / motif"
-              type="textarea"
-              outlined
-              autogrow
-              class="q-mb-md"
-            />
-
             <!-- Bouton archivage -->
             <q-btn
               color="positive"
@@ -774,8 +818,59 @@
               input-debounce="200"
               class="q-mb-md"
             >
+              <!-- Icône à gauche -->
               <template #prepend>
                 <q-icon name="inventory_2" />
+              </template>
+
+              <!-- Liste des personnes -->
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section avatar>
+                    <q-avatar size="40px" color="warning" text-color="white">
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                        @error="$event.target.style.display = 'none'"
+                      />
+
+                      <span v-else>
+                        {{ initials(scope.opt) }}
+                      </span>
+                    </q-avatar>
+                  </q-item-section>
+
+                  <q-item-section>
+                    <q-item-label>
+                      {{ scope.opt.label }}
+                    </q-item-label>
+
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+
+              <!-- Personne sélectionnée -->
+              <template #selected-item="scope">
+                <q-chip dense class="q-ma-none">
+                  <q-avatar size="28px">
+                    <img
+                      v-if="scope.opt.image"
+                      :src="scope.opt.image"
+                      alt="Photo"
+                      @error="$event.target.style.display = 'none'"
+                    />
+
+                    <span v-else>
+                      {{ initials(scope.opt) }}
+                    </span>
+                  </q-avatar>
+
+                  {{ scope.opt.label }}
+                </q-chip>
               </template>
             </q-select>
 
@@ -978,12 +1073,19 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
 import { statusColor, statusLabel } from "src/utils/status";
 import DossierSplitLayout from "components/DossierSplitLayout.vue";
 import DossierFilePreview from "components/DossierFilePreview.vue";
+
+const route = useRoute();
+
+const isFromArchives = computed(() => {
+  return route.query.from === "archives";
+});
 
 const props = defineProps({
   dossierId: { type: [Number, String], required: true },
@@ -1045,11 +1147,42 @@ const showArchiveInfo = computed(() => {
   return ["i_archive", "Admin", "super_admin"].includes(auth.role);
 });
 
+const canComment = computed(() => {
+  if (!dossier.value) return false;
+
+  // Si le dossier est consulté depuis les archives,
+  // personne ne peut commenter.
+  if (isFromArchives.value) {
+    return false;
+  }
+
+  // Archivage rapide : aucun commentaire
+  if (isQuickArchive.value) {
+    return false;
+  }
+
+  // Les rôles suivants ne commentent jamais
+  if (["i_archive", "Admin", "super_admin"].includes(auth.role)) {
+    return false;
+  }
+
+  switch (dossier.value.statut) {
+    case "EN_VERIFICATION":
+      return auth.role === "Verificateur";
+
+    case "EN_VALIDATION":
+      return auth.role === "Validateur";
+
+    case "RETOUR_DISPATCH":
+      return auth.role === "Dispatch";
+
+    default:
+      return false;
+  }
+});
+
 const hideCommentSection = computed(() => {
-  return (
-    ["i_archive", "Admin", "super_admin"].includes(auth.role) ||
-    isQuickArchive.value
-  );
+  return !canComment.value;
 });
 
 function onDocumentFullscreen(value) {
@@ -1160,6 +1293,7 @@ const canSendToValidateur = computed(() => {
   if (!dossier.value) return false;
 
   return (
+    !isFromArchives.value &&
     auth.role === "Verificateur" &&
     ["EN_VERIFICATION", "RETOUR_DISPATCH"].includes(dossier.value.statut)
   );
@@ -1168,7 +1302,11 @@ const canSendToValidateur = computed(() => {
 const canDecide = computed(() => {
   if (!dossier.value) return false;
 
-  return auth.role === "Validateur" && dossier.value.statut === "EN_VALIDATION";
+  return (
+    !isFromArchives.value &&
+    auth.role === "Validateur" &&
+    dossier.value.statut === "EN_VALIDATION"
+  );
 });
 
 const canReuploadVersion = computed(() => {

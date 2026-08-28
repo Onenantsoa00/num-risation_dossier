@@ -1,3 +1,5 @@
+//frontend/src/layouts/MainLayout.vue
+
 <template>
   <q-layout view="hHh Lpr lFf">
     <!-- =========================================================
@@ -142,7 +144,16 @@
 
           <!-- IMPORTER -->
           <q-item
-            v-if="['Dispatch', 'Admin', 'super_admin'].includes(auth.role)"
+            v-if="
+              [
+                'Dispatch',
+                'Verificateur',
+                'Validateur',
+                'i_archive',
+                'Admin',
+                'super_admin',
+              ].includes(auth.role)
+            "
             clickable
             v-ripple
             :to="{ name: 'dossier-create' }"

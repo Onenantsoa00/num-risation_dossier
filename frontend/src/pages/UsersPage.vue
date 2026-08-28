@@ -622,11 +622,10 @@ async function changeUserStatus(user) {
 const filteredUsers = computed(() => {
   const q = search.value.trim().toLowerCase();
 
-  if (!q) {
-    return users.value;
-  }
+  // 1. Filtrer selon la recherche
+  let result = users.value.filter((user) => {
+    if (!q) return true;
 
-  return users.value.filter((user) => {
     return [
       user.nom,
       user.prenoms,
@@ -638,6 +637,31 @@ const filteredUsers = computed(() => {
     ]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(q));
+  });
+
+  // 2. Trier selon la priorité des rôles
+  return [...result].sort((a, b) => {
+    const rolePriority = {
+      super_admin: 1,
+      Admin: 2,
+    };
+
+    const priorityA = rolePriority[a.role] || 3;
+    const priorityB = rolePriority[b.role] || 3;
+
+    // super_admin puis Admin
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+
+    // Pour les autres rôles :
+    // classement alphabétique par nom
+    const nomA = String(a.nom || "").toLowerCase();
+    const nomB = String(b.nom || "").toLowerCase();
+
+    return nomA.localeCompare(nomB, "fr", {
+      sensitivity: "base",
+    });
   });
 });
 

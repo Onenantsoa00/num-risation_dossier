@@ -115,9 +115,7 @@
               <q-icon name="attach_file" />
             </template>
 
-            <template #hint>
-              PDF, Word, Excel, ZIP, images ou fichiers texte — 50 Mo maximum
-            </template>
+            <template #hint> PDF — 50 Mo maximum </template>
           </q-file>
 
           <!-- VERIFICATEUR -->

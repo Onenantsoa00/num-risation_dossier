@@ -45,11 +45,16 @@ async function list(req, res) {
     // 1. DROITS D'ACCÈS
     // ============================================================
 
-    if (req.user.role === "Dispatch") {
-      params.push(req.user.id);
+    const archiveRoles = [
+      "Dispatch",
+      "Verificateur",
+      "Validateur",
+      "i_archive",
+      "Admin",
+      "super_admin",
+    ];
 
-      conditions.push(`d.id_dispatch = $${params.length}`);
-    } else if (!["Admin", "super_admin", "i_archive"].includes(req.user.role)) {
+    if (!archiveRoles.includes(req.user.role)) {
       return res.json([]);
     }
 

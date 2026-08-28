@@ -1,3 +1,4 @@
+//frontend/src/pages/ArchivesPage.vue
 <template>
   <q-page padding>
     <div class="page-shell">
@@ -169,6 +170,9 @@
                 name: 'dossier-detail',
                 params: {
                   id: props.row.id_dossier,
+                },
+                query: {
+                  from: 'archives',
                 },
               }"
             >
