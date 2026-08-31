@@ -261,6 +261,8 @@ import { useAuthStore } from "stores/auth";
 
 import { useNotificationStore } from "stores/notifications";
 
+import { getImageUrl } from "src/utils/files";
+
 // ============================================================
 // CONSTANTES
 // ============================================================
@@ -334,13 +336,7 @@ function logout() {
 // ============================================================
 
 function imageUrl(image) {
-  if (!image) return null;
-
-  if (/^https?:\/\//.test(image)) {
-    return image;
-  }
-
-  return image;
+  return getImageUrl(image);
 }
 
 // ============================================================

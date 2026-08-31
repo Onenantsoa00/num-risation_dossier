@@ -239,6 +239,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
+import { getImageUrl } from "src/utils/files";
 
 import DossierFilePreview from "components/DossierFilePreview.vue";
 
@@ -422,13 +423,7 @@ async function submit() {
 }
 
 function imageUrl(image) {
-  if (!image) return null;
-
-  if (/^https?:\/\//.test(image)) {
-    return image;
-  }
-
-  return `http://localhost:3000${image}`;
+  return getImageUrl(image);
 }
 
 function initials(user) {

@@ -224,6 +224,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
+import { getImageUrl } from "src/utils/files";
 
 const auth = useAuthStore();
 const $q = useQuasar();
@@ -264,13 +265,7 @@ onMounted(() => {
 });
 
 function imageUrl(image) {
-  if (!image) return null;
-
-  if (/^https?:\/\//.test(image)) {
-    return image;
-  }
-
-  return `http://localhost:3000${image}`;
+  return getImageUrl(image);
 }
 
 onUnmounted(() => {

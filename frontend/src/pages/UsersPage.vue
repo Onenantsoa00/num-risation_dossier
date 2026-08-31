@@ -458,17 +458,12 @@ import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useQuasar, Dialog } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
+import { getImageUrl } from "src/utils/files";
 
 const auth = useAuthStore();
 
 function imageUrl(image) {
-  if (!image) return null;
-
-  if (/^https?:\/\//.test(image)) {
-    return image;
-  }
-
-  return `http://localhost:3000${image}`;
+  return getImageUrl(image);
 }
 
 const currentUserId = computed(() => auth.user?.id);
