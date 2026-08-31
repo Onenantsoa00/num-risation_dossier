@@ -111,16 +111,14 @@ git pull origin main
 
 http://192.168.137.1:3000
 
-| Compte      | CIN            | Mot de passe      |
-| ----------- | -------------- | ----------------- |
-| super_admin(trésorier) | `100000000001` | `SuperAdmin@2026` |
-| Admin 1 (chef Fortuner)    | `100000000002` | `Admin@2026-01`   |
-| Admin 2 (chef Harijaona)    | `100000000003` | `Admin@2026-02`   |
-| Admin 3 (chef Sariaka)    | `100000000004` | `Admin@2026-03`   |
+| Compte                   | CIN            | Mot de passe      |
+| ------------------------ | -------------- | ----------------- |
+| super_admin(trésorier)   | `100000000001` | `SuperAdmin@2026` |
+| Admin 1 (chef Fortuner)  | `100000000002` | `Admin@2026-01`   |
+| Admin 2 (chef Harijaona) | `100000000003` | `Admin@2026-02`   |
+| Admin 3 (chef Sariaka)   | `100000000004` | `Admin@2026-03`   |
 
 Windows + R : taskschd.msc
-
-
 
 "1. Vérifier les services sur le serveur
 
@@ -138,8 +136,7 @@ systemctl is-active ordsec-backend
 
 doit afficher :
 
-active
-2. Tester l'API
+active 2. Tester l'API
 
 Toujours sur le serveur :
 
@@ -155,7 +152,6 @@ et :
 
 Tu l'as déjà testé et ça fonctionne. ✅"
 
-
 "3. Tester avec l'adresse IP du serveur
 
 C'est maintenant le test important.
@@ -166,7 +162,7 @@ ip -br addr
 
 Tu dois retrouver ton Ethernet avec :
 
-enp3s0    UP    192.168.86.200/24
+enp3s0 UP 192.168.86.200/24
 
 Ensuite :
 

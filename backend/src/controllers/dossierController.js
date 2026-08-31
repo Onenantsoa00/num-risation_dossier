@@ -939,6 +939,9 @@ async function reuploadVersion(req, res) {
   let finalFilePath = null;
 
   try {
+    // ============================================================
+    // 1. Vérification du rôle
+    // ============================================================
     if (!["Dispatch", "Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({
         error:
@@ -946,6 +949,9 @@ async function reuploadVersion(req, res) {
       });
     }
 
+    // ============================================================
+    // 2. Récupération du dossier
+    // ============================================================
     const dossier = await getDossierOr404(req.params.id);
 
     if (!dossier) {
@@ -954,6 +960,9 @@ async function reuploadVersion(req, res) {
       });
     }
 
+    // ============================================================
+    // 3. Vérification du propriétaire
+    // ============================================================
     if (
       !["Admin", "super_admin"].includes(req.user.role) &&
       dossier.id_dispatch !== req.user.id
@@ -963,6 +972,9 @@ async function reuploadVersion(req, res) {
       });
     }
 
+    // ============================================================
+    // 4. Vérification du statut
+    // ============================================================
     if (dossier.statut !== "RETOUR_DISPATCH") {
       return res.status(400).json({
         error:
@@ -970,6 +982,9 @@ async function reuploadVersion(req, res) {
       });
     }
 
+    // ============================================================
+    // 5. Vérification du fichier
+    // ============================================================
     if (!req.file) {
       return res.status(400).json({
         error: "Le nouveau fichier est requis",
@@ -978,8 +993,15 @@ async function reuploadVersion(req, res) {
 
     tempFilePath = path.join(uploadDir, req.file.filename);
 
-    const { n_compte, n_be, n_soa, exo_budgetaire, id_verificateur } = req.body;
+    // ============================================================
+    // 6. Récupération des informations envoyées
+    // ============================================================
+    const { n_compte, n_be, n_soa, n_ord, exo_budgetaire, id_verificateur } =
+      req.body;
 
+    // ============================================================
+    // 7. Vérification des champs obligatoires
+    // ============================================================
     if (!n_compte?.trim()) {
       return res.status(400).json({
         error: "Le N° compte est requis",
@@ -998,16 +1020,21 @@ async function reuploadVersion(req, res) {
       });
     }
 
+    if (!n_ord?.trim()) {
+      return res.status(400).json({
+        error: "Le N° ORD est requis",
+      });
+    }
+
     if (!exo_budgetaire?.trim()) {
       return res.status(400).json({
         error: "L'exercice budgétaire est requis",
       });
     }
 
-    /*
-     * Le vérificateur doit rester valide.
-     * Le Dispatch peut éventuellement en sélectionner un autre.
-     */
+    // ============================================================
+    // 8. Vérification du vérificateur
+    // ============================================================
     const verifierId = id_verificateur || dossier.id_verificateur;
 
     if (!verifierId) {
@@ -1017,7 +1044,10 @@ async function reuploadVersion(req, res) {
     }
 
     const verif = await db.query(
-      `SELECT u.id, u.email, r.nom AS role
+      `SELECT
+         u.id,
+         u.email,
+         r.nom AS role
        FROM utilisateur u
        JOIN roles r ON r.id = u.id_roles
        WHERE u.id = $1`,
@@ -1033,21 +1063,19 @@ async function reuploadVersion(req, res) {
       });
     }
 
-    /*
-     * Nouvelle version
-     */
+    // ============================================================
+    // 9. Calcul de la nouvelle version
+    // ============================================================
     const newVersion = Number(dossier.version || 1) + 1;
 
-    /*
-     * Nom de base basé sur les nouveaux champs.
-     *
-     * Exemple :
-     * 100020039-10399049-0293029390-2026
-     */
+    // ============================================================
+    // 10. Création du nom de fichier
+    // ============================================================
     const baseName = [
       n_compte.trim(),
       n_be.trim(),
       n_soa.trim(),
+      n_ord.trim(),
       exo_budgetaire.trim(),
     ]
       .join("-")
@@ -1057,70 +1085,74 @@ async function reuploadVersion(req, res) {
       .replace(/^[-_.]+|[-_.]+$/g, "")
       .trim();
 
-    /*
-     * Pour la version 2 :
-     * 100020039-10399049-0293029390-2026(2)
-     */
     const versionedName = `${baseName}(${newVersion})`;
 
-    /*
-     * Extension du fichier original.
-     */
+    // ============================================================
+    // 11. Extension du fichier
+    // ============================================================
     const extension = path.extname(req.file.originalname).toLowerCase();
 
     const finalFileName = `${versionedName}${extension}`;
 
     finalFilePath = path.join(uploadDir, finalFileName);
 
-    /*
-     * Protection supplémentaire contre un doublon.
-     */
+    // ============================================================
+    // 12. Protection contre les doublons
+    // ============================================================
     if (fs.existsSync(finalFilePath)) {
       return res.status(409).json({
         error: `Le fichier "${finalFileName}" existe déjà.`,
       });
     }
 
-    /*
-     * Renommer le fichier temporaire.
-     *
-     * L'ancien fichier n'est PAS supprimé.
-     */
+    // ============================================================
+    // 13. Renommage du fichier temporaire
+    // ============================================================
     await fs.promises.rename(tempFilePath, finalFilePath);
 
     tempFilePath = null;
 
-    /*
-     * Mise à jour du même dossier.
-     *
-     * IMPORTANT :
-     * commentaire reste inchangé.
-     */
+    // ============================================================
+    // 14. Mise à jour du dossier
+    //
+    // IMPORTANT :
+    // Le commentaire n'est PAS modifié ici.
+    // ============================================================
     const { rows } = await db.query(
-      `UPDATE dossier
-   SET
-     nom = $1,
-     n_compte = $2,
-     n_be = $3,
-     n_soa = $4,
-     exo_budgetaire = $5,
-     compte_pc = NULL,
-     date_fin_dossier = NULL,
-     ref_ecriture = NULL,
-     fichier_original = $6,
-     version = $7,
-     id_verificateur = $8,
-     statut = 'EN_VERIFICATION',
-     validation = FALSE,
-     rejet = FALSE,
-     updated_at = CURRENT_TIMESTAMP
-   WHERE id = $9
-   RETURNING *`,
+      `
+      UPDATE dossier
+      SET
+        nom = $1,
+        n_compte = $2,
+        n_be = $3,
+        n_soa = $4,
+        n_ord = $5,
+        exo_budgetaire = $6,
+
+        compte_pc = NULL,
+        date_fin_dossier = NULL,
+        ref_ecriture = NULL,
+
+        fichier_original = $7,
+        version = $8,
+        id_verificateur = $9,
+
+        statut = 'EN_VERIFICATION',
+        validation = FALSE,
+        rejet = FALSE,
+
+        updated_at = CURRENT_TIMESTAMP
+
+      WHERE id = $10
+
+      RETURNING *
+      `,
       [
         versionedName,
         n_compte.trim(),
         n_be.trim(),
         n_soa.trim(),
+        n_ord.trim(),
         exo_budgetaire.trim(),
         finalFileName,
         newVersion,
@@ -1131,20 +1163,26 @@ async function reuploadVersion(req, res) {
 
     const updatedDossier = rows[0];
 
-    /*
-     * Conservation de l'historique.
-     *
-     * Le commentaire actuel du dossier n'est PAS écrasé.
-     */
+    // ============================================================
+    // 15. Historique du traitement
+    // ============================================================
     await db.query(
-      `INSERT INTO traitement (
-         id_users,
-         id_dossier,
-         type_traitement,
-         commentaire,
-         statut
-       )
-       VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
+      `
+      INSERT INTO traitement (
+        id_users,
+        id_dossier,
+        type_traitement,
+        commentaire,
+        statut
+      )
+      VALUES (
+        $1,
+        $2,
+        'DISPATCH',
+        $3,
+        'EN_VERIFICATION'
+      )
+      `,
       [
         req.user.id,
         updatedDossier.id,
@@ -1152,9 +1190,9 @@ async function reuploadVersion(req, res) {
       ],
     );
 
-    /*
-     * Notification du vérificateur
-     */
+    // ============================================================
+    // 16. Notification du vérificateur
+    // ============================================================
     await createNotification({
       id_user: Number(verifierId),
       id_dossier: updatedDossier.id,
@@ -1162,9 +1200,9 @@ async function reuploadVersion(req, res) {
       type: "VERIFICATION",
     });
 
-    /*
-     * Audit
-     */
+    // ============================================================
+    // 17. Audit
+    // ============================================================
     await audit({
       id_user: req.user.id,
       action: "REUPLOAD_DOSSIER",
@@ -1173,22 +1211,29 @@ async function reuploadVersion(req, res) {
       details: {
         ancienne_version: dossier.version,
         nouvelle_version: newVersion,
+
         ancien_fichier: dossier.fichier_original,
         nouveau_fichier: finalFileName,
+
         ancien_nom: dossier.nom,
         nouveau_nom: versionedName,
+
+        ancien_n_ord: dossier.n_ord,
+        nouveau_n_ord: n_ord.trim(),
       },
       ip_address: req.ip,
     });
 
+    // ============================================================
+    // 18. Retour
+    // ============================================================
     res.json(await getDossierOr404(updatedDossier.id));
   } catch (err) {
-    console.error(err);
+    console.error("Erreur reuploadVersion :", err);
 
-    /*
-     * Si le fichier a été uploadé mais qu'une erreur
-     * survient avant son renommage, on le supprime.
-     */
+    // ============================================================
+    // Nettoyage du fichier temporaire
+    // ============================================================
     if (tempFilePath) {
       try {
         if (fs.existsSync(tempFilePath)) {
@@ -1199,11 +1244,9 @@ async function reuploadVersion(req, res) {
       }
     }
 
-    /*
-     * Si le fichier final existe mais que la mise à jour
-     * a échoué, on peut le supprimer afin d'éviter
-     * un fichier orphelin.
-     */
+    // ============================================================
+    // Nettoyage du fichier final
+    // ============================================================
     if (finalFilePath) {
       try {
         if (fs.existsSync(finalFilePath)) {
@@ -1243,26 +1286,26 @@ async function exportDossier(req, res) {
     }
 
     // ============================================================
-    // 3. Récupération de l'historique des traitements
+    // 3. Récupération de l'historique
     // ============================================================
     const traitements = await db.query(
       `
-        SELECT
-          t.*,
-          u.nom,
-          u.prenoms,
-          u.email
-        FROM traitement t
-        JOIN utilisateur u
-          ON u.id = t.id_users
-        WHERE t.id_dossier = $1
-        ORDER BY t.date_traitement ASC
+      SELECT
+        t.*,
+        u.nom,
+        u.prenoms,
+        u.email
+      FROM traitement t
+      JOIN utilisateur u
+        ON u.id = t.id_users
+      WHERE t.id_dossier = $1
+      ORDER BY t.date_traitement ASC
       `,
       [dossier.id],
     );
 
     // ============================================================
-    // 4. Nom sécurisé du fichier ZIP
+    // 4. Nom sécurisé du ZIP
     // ============================================================
     const safeName = (dossier.nom || `dossier_${dossier.id}`)
       .normalize("NFD")
@@ -1340,6 +1383,8 @@ async function exportDossier(req, res) {
 
       commentaire_actuel: dossier.commentaire,
 
+      version: dossier.version,
+
       created_at: dossier.created_at,
       updated_at: dossier.updated_at,
 
@@ -1356,6 +1401,11 @@ async function exportDossier(req, res) {
       })),
     };
 
+    // ============================================================
+    // 9. Générer commentaire.pdf
+    //
+    // PDF = historique complet
+    // ============================================================
     const commentairePdf = new PDFDocument({
       margin: 50,
       size: "A4",
@@ -1381,24 +1431,25 @@ async function exportDossier(req, res) {
 
     commentairePdf.moveDown();
 
-    commentairePdf.fontSize(11).text(`Dossier : ${dossier.nom || "-"}`);
+    commentairePdf.fontSize(11);
 
+    commentairePdf.text(`Dossier : ${dossier.nom || "-"}`);
     commentairePdf.text(`N° compte : ${dossier.n_compte || "-"}`);
-
     commentairePdf.text(`N° BE : ${dossier.n_be || "-"}`);
-
     commentairePdf.text(`N° ORD : ${dossier.n_ord || "-"}`);
-
     commentairePdf.text(`N° SOA : ${dossier.n_soa || "-"}`);
-
-    commentairePdf.text(`Exercice : ${dossier.exo_budgetaire || "-"}`);
+    commentairePdf.text(
+      `Exercice budgétaire : ${dossier.exo_budgetaire || "-"}`,
+    );
 
     commentairePdf.moveDown();
+
+    commentairePdf.text(`Version : ${dossier.version || 1}`);
 
     commentairePdf.text(`Compte PC : ${dossier.compte_pc || "-"}`);
 
     commentairePdf.text(
-      `Date fin du dossier : ${dossier.date_fin_dossier || "-"}`,
+      `Date fin du dossier : ${formatHumanDate(dossier.date_fin_dossier)}`,
     );
 
     commentairePdf.text(
@@ -1411,11 +1462,13 @@ async function exportDossier(req, res) {
 
     commentairePdf.moveDown();
 
+    // ============================================================
+    // Historique complet
+    // ============================================================
     for (const t of traitements.rows) {
       const auteur = `${t.prenoms || ""} ${t.nom || ""}`.trim();
 
-      const date =
-        t.date_traitement?.toISOString?.() || t.date_traitement || "";
+      const date = formatHumanDate(t.date_traitement);
 
       commentairePdf
         .fontSize(11)
@@ -1423,6 +1476,8 @@ async function exportDossier(req, res) {
         .text(`${date} — ${t.type_traitement || ""}`);
 
       commentairePdf.font("Helvetica").text(`Auteur : ${auteur || "-"}`);
+
+      commentairePdf.text(`Statut : ${t.statut || "-"}`);
 
       commentairePdf.text(`Commentaire : ${t.commentaire || "-"}`);
 
@@ -1438,24 +1493,119 @@ async function exportDossier(req, res) {
     });
 
     // ============================================================
-    // 9. Ajouter commentaires.txt
+    // 10. Générer commentaire_to_ordsec.pdf
+    //
+    // Ce PDF contient UNIQUEMENT :
+    //
+    // - N° compte
+    // - N° BE
+    // - N° SOA
+    // - N° ORD
+    // - Exercice budgétaire
+    // - Dernier commentaire actuel
     // ============================================================
-    const historiqueTexte = traitements.rows.map((t) => {
-      const date =
-        t.date_traitement?.toISOString?.() || t.date_traitement || "";
+    const ordsecPdf = new PDFDocument({
+      margin: 60,
+      size: "A4",
+    });
 
-      const auteur = `${t.prenoms || ""} ${t.nom || ""}`.trim();
+    const ordsecChunks = [];
 
-      return (
-        `[${date}] ` +
-        `${t.type_traitement} — ` +
-        `${auteur}\n` +
-        `${t.commentaire || ""}\n`
-      );
+    ordsecPdf.on("data", (chunk) => {
+      ordsecChunks.push(chunk);
+    });
+
+    const ordsecPdfPromise = new Promise((resolve, reject) => {
+      ordsecPdf.on("end", () => {
+        resolve(Buffer.concat(ordsecChunks));
+      });
+
+      ordsecPdf.on("error", reject);
     });
 
     // ============================================================
-    // 10. Ajouter le fichier original
+    // En-tête
+    // ============================================================
+    ordsecPdf
+      .font("Helvetica-Bold")
+      .fontSize(18)
+      .text("COMMENTAIRE À L'ORDSEC", {
+        align: "center",
+      });
+
+    ordsecPdf.moveDown(1.5);
+
+    // ============================================================
+    // Informations du dossier
+    // ============================================================
+    ordsecPdf
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .text("Informations du dossier");
+
+    ordsecPdf.moveDown(0.5);
+
+    ordsecPdf.font("Helvetica").fontSize(11);
+
+    ordsecPdf.text(`Dossier : ${dossier.nom || "-"}`);
+
+    ordsecPdf.text(`N° compte : ${dossier.n_compte || "-"}`);
+
+    ordsecPdf.text(`N° BE : ${dossier.n_be || "-"}`);
+
+    ordsecPdf.text(`N° SOA : ${dossier.n_soa || "-"}`);
+
+    ordsecPdf.text(`N° ORD : ${dossier.n_ord || "-"}`);
+
+    ordsecPdf.text(`Exercice budgétaire : ${dossier.exo_budgetaire || "-"}`);
+
+    ordsecPdf.moveDown(1.5);
+
+    // ============================================================
+    // Dernier commentaire
+    // ============================================================
+    ordsecPdf.font("Helvetica-Bold").fontSize(13).text("Commentaire");
+
+    ordsecPdf.moveDown(0.7);
+
+    ordsecPdf
+      .font("Helvetica")
+      .fontSize(11)
+      .text(
+        dossier.commentaire?.trim()
+          ? dossier.commentaire.trim()
+          : "Aucun commentaire.",
+        {
+          align: "left",
+          width: 470,
+        },
+      );
+
+    ordsecPdf.moveDown(1.5);
+
+    // ============================================================
+    // Informations complémentaires
+    // ============================================================
+    ordsecPdf
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .text(`Version du dossier : ${dossier.version || 1}`);
+
+    ordsecPdf.moveDown(2);
+
+    ordsecPdf.end();
+
+    const ordsecPdfBuffer = await ordsecPdfPromise;
+
+    // ============================================================
+    // Ajout au ZIP
+    // ============================================================
+    archive.append(ordsecPdfBuffer, {
+      name: "commentaire_to_ordsec.pdf",
+    });
+
+    // ============================================================
+    // 11. Ajouter le fichier original
     // ============================================================
     if (dossier.fichier_original) {
       const filePath = path.join(uploadDir, dossier.fichier_original);
@@ -1470,7 +1620,7 @@ async function exportDossier(req, res) {
     }
 
     // ============================================================
-    // 11. Finalisation
+    // 12. Finalisation du ZIP
     // ============================================================
     await archive.finalize();
   } catch (err) {
@@ -1653,6 +1803,27 @@ async function downloadFile(req, res) {
   }
 }
 
+function formatHumanDate(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 module.exports = {
   list,
   getOne,
@@ -1664,6 +1835,7 @@ module.exports = {
   returnToDispatch,
   reuploadVersion,
   exportDossier,
+  formatHumanDate,
   downloadFile,
   archiveDossier,
   previewFile,
