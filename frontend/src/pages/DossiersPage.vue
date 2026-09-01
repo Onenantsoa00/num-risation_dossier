@@ -121,6 +121,12 @@ const columns = [
   },
   { name: "statut", label: "Statut", field: "statut", align: "left" },
   {
+    name: "deadline",
+    label: "Délai",
+    field: (r) => r.deadline_remaining_label || "—",
+    align: "left",
+  },
+  {
     name: "updated_at",
     label: "Mis à jour",
     field: (r) => formatDate(r.updated_at),

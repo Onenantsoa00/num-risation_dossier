@@ -36,6 +36,7 @@ frontend/src/components/DossierFilePreview.vue
         </q-btn>
 
         <q-btn
+          v-if="!hideFullscreen"
           flat
           round
           dense
@@ -205,6 +206,11 @@ const props = defineProps({
   },
 
   canDownload: {
+    type: Boolean,
+    default: false,
+  },
+
+  hideFullscreen: {
     type: Boolean,
     default: false,
   },

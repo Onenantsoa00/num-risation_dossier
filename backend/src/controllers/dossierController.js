@@ -9,6 +9,20 @@ const {
   notifyMentions,
   audit,
 } = require("../services/helpers");
+const {
+  getDeadlineRemaining,
+  formatRemaining,
+} = require("../services/deadline");
+const {
+  findRetourDispatchDuplicate,
+  notifyAllAdmins,
+  isUserOnConge,
+  saveCurrentVersionToHistory,
+  getDossierVersions,
+  getPreviousVersion,
+  clearVersionHistory,
+  markAdminModified,
+} = require("../services/dossierWorkflow");
 const { uploadDir } = require("../middleware/upload");
 
 const DOSSIER_SELECT = `
@@ -55,6 +69,56 @@ const DOSSIER_SELECT = `
 async function getDossierOr404(id) {
   const { rows } = await db.query(`${DOSSIER_SELECT} WHERE d.id = $1`, [id]);
   return rows[0] || null;
+}
+
+async function enrichDossierWithDeadline(dossier, userId, userRole) {
+  if (!dossier) return dossier;
+
+  let congeDebut = null;
+  let congeFin = null;
+
+  if (userId) {
+    const { rows } = await db.query(
+      `SELECT conge_debut, conge_fin FROM utilisateur WHERE id = $1`,
+      [userId],
+    );
+    congeDebut = rows[0]?.conge_debut;
+    congeFin = rows[0]?.conge_fin;
+  }
+
+  const enriched = { ...dossier };
+
+  if (
+    dossier.statut === "EN_VERIFICATION" &&
+    dossier.id_verificateur === userId
+  ) {
+    const { remaining, isPaused } = getDeadlineRemaining(
+      dossier,
+      "verification",
+      congeDebut,
+      congeFin,
+    );
+    enriched.deadline_remaining_sec = remaining;
+    enriched.deadline_remaining_label = formatRemaining(remaining, isPaused);
+    enriched.deadline_is_paused = isPaused;
+  }
+
+  if (
+    dossier.statut === "EN_VALIDATION" &&
+    dossier.id_validateur === userId
+  ) {
+    const { remaining, isPaused } = getDeadlineRemaining(
+      dossier,
+      "validation",
+      congeDebut,
+      congeFin,
+    );
+    enriched.deadline_remaining_sec = remaining;
+    enriched.deadline_remaining_label = formatRemaining(remaining, isPaused);
+    enriched.deadline_is_paused = isPaused;
+  }
+
+  return enriched;
 }
 
 function canSeeDossier(user, dossier) {
@@ -141,6 +205,8 @@ async function list(req, res) {
       params.push(req.user.id);
     } else if (req.user.role === "i_archive") {
       where += ` AND d.statut = 'VALIDE'`;
+    } else if (["Admin", "super_admin"].includes(req.user.role)) {
+      // Les admins voient tous les dossiers non archivés
     }
 
     if (statut) {
@@ -153,11 +219,29 @@ async function list(req, res) {
       i++;
     }
 
+    let orderBy = "ORDER BY d.updated_at DESC";
+    if (req.user.role === "Verificateur") {
+      orderBy =
+        "ORDER BY d.assigned_verification_at ASC NULLS LAST, d.updated_at ASC";
+    } else if (req.user.role === "Validateur") {
+      orderBy =
+        "ORDER BY d.assigned_validation_at ASC NULLS LAST, d.updated_at ASC";
+    } else if (["Admin", "super_admin"].includes(req.user.role)) {
+      orderBy =
+        "ORDER BY CASE WHEN d.statut = 'EN_ATTENTE_VERIFICATEUR' THEN 0 ELSE 1 END, d.updated_at DESC";
+    }
+
     const { rows } = await db.query(
-      `${DOSSIER_SELECT} ${where} ORDER BY d.updated_at DESC`,
+      `${DOSSIER_SELECT} ${where} ${orderBy}`,
       params,
     );
-    res.json(rows);
+
+    const enriched = await Promise.all(
+      rows.map((d) =>
+        enrichDossierWithDeadline(d, req.user.id, req.user.role),
+      ),
+    );
+    res.json(enriched);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur liste des dossiers" });
@@ -299,10 +383,58 @@ async function getOne(req, res) {
       [dossier.id],
     );
 
-    res.json({ ...dossier, traitements: traitements.rows });
+    const versions = await getDossierVersions(dossier.id);
+    const previousVersion = dossier.comparaison_active
+      ? await getPreviousVersion(dossier.id, dossier.version)
+      : null;
+
+    const enriched = await enrichDossierWithDeadline(
+      dossier,
+      req.user.id,
+      req.user.role,
+    );
+
+    res.json({
+      ...enriched,
+      traitements: traitements.rows,
+      versions,
+      previous_version: previousVersion,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur récupération du dossier" });
+  }
+}
+
+async function checkDuplicate(req, res) {
+  try {
+    const { n_compte, n_be, n_soa, n_ord, exo_budgetaire } = req.query;
+    const duplicate = await findRetourDispatchDuplicate({
+      n_compte,
+      n_be,
+      n_soa,
+      n_ord,
+      exo_budgetaire,
+    });
+
+    if (!duplicate) {
+      return res.json({ duplicate: false });
+    }
+
+    res.json({
+      duplicate: true,
+      dossier: {
+        id: duplicate.id,
+        nom: duplicate.nom,
+        statut: duplicate.statut,
+        version: duplicate.version,
+        verificateur_nom: duplicate.id_verificateur,
+        validateur_nom: duplicate.id_validateur,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur vérification doublon" });
   }
 }
 
@@ -322,36 +454,36 @@ async function create(req, res) {
       n_ord,
       exo_budgetaire,
       commentaire,
-      id_verificateur,
+      force_new,
     } = req.body;
+
     if (!nom)
       return res.status(400).json({ error: "Le nom du dossier est requis" });
-    if (!id_verificateur)
-      return res
-        .status(400)
-        .json({ error: "Un vérificateur doit être désigné" });
     if (!req.file)
       return res
         .status(400)
         .json({ error: "Le fichier du dossier est requis" });
 
-    const verif = await db.query(
-      `SELECT u.id, u.email, r.nom AS role FROM utilisateur u
-       JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
-      [id_verificateur],
-    );
-    if (
-      !verif.rows[0] ||
-      !["Verificateur", "Admin"].includes(verif.rows[0].role)
-    ) {
-      return res
-        .status(400)
-        .json({ error: "Utilisateur vérificateur invalide" });
-    }
+    // Vérifier doublon RETOUR_DISPATCH
+    if (force_new !== "true" && force_new !== true) {
+      const duplicate = await findRetourDispatchDuplicate({
+        n_compte,
+        n_be,
+        n_soa,
+        n_ord,
+        exo_budgetaire,
+      });
 
-    // ------------------------------------------------------------
-    // Préparation du nom final du fichier
-    // ------------------------------------------------------------
+      if (duplicate) {
+        return res.status(409).json({
+          code: "DUPLICATE_RETOUR_DISPATCH",
+          error:
+            "Un dossier identique existe déjà avec le statut Retour Dispatch.",
+          existing_dossier_id: duplicate.id,
+          existing_dossier: duplicate,
+        });
+      }
+    }
 
     const safeNom = nom
       .normalize("NFD")
@@ -361,60 +493,25 @@ async function create(req, res) {
       .trim();
 
     const extension = path.extname(req.file.originalname).toLowerCase();
-
     const finalFileName = `${safeNom}${extension}`;
-
     const tempFilePath = path.join(uploadDir, req.file.filename);
-
     const finalFilePath = path.join(uploadDir, finalFileName);
 
-    // Ne jamais écraser un fichier existant
     if (fs.existsSync(finalFilePath)) {
       return res.status(409).json({
         error: `Un fichier nommé "${finalFileName}" existe déjà.`,
       });
     }
 
-    // Renommage du fichier temporaire
     await fs.promises.rename(tempFilePath, finalFilePath);
-
-    // ------------------------------------------------------------
-    // Création du dossier
-    // ------------------------------------------------------------
 
     const { rows } = await db.query(
       `INSERT INTO dossier (
-     nom,
-     n_compte,
-     n_be,
-     n_soa,
-     n_ord,
-     exo_budgetaire,
-     compte_pc,
-     date_fin_dossier,
-     ref_ecriture,
-     commentaire,
-     fichier_original,
-     statut,
-     id_dispatch,
-     id_verificateur
+     nom, n_compte, n_be, n_soa, n_ord, exo_budgetaire,
+     compte_pc, date_fin_dossier, ref_ecriture,
+     commentaire, fichier_original, statut, id_dispatch
    )
-   VALUES (
-     $1,
-     $2,
-     $3,
-     $4,
-     $5,
-     $6,
-     NULL,
-     NULL,
-     NULL,
-     $7,
-     $8,
-     'EN_VERIFICATION',
-     $9,
-     $10
-   )
+   VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, NULL, $7, $8, 'EN_ATTENTE_VERIFICATEUR', $9)
    RETURNING *`,
       [
         nom,
@@ -426,26 +523,31 @@ async function create(req, res) {
         commentaire || null,
         finalFileName,
         req.user.id,
-        id_verificateur,
       ],
     );
 
     const dossier = rows[0];
 
     await db.query(
+      `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
+       VALUES ($1, 1, $2, TRUE)
+       ON CONFLICT (id_dossier, version) DO NOTHING`,
+      [dossier.id, finalFileName],
+    );
+
+    await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
-       VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
+       VALUES ($1, $2, 'DISPATCH', $3, 'EN_ATTENTE_VERIFICATEUR')`,
       [
         req.user.id,
         dossier.id,
-        commentaire || "Dossier importé et transmis au vérificateur",
+        commentaire || "Dossier importé — en attente d'assignation vérificateur",
       ],
     );
 
-    await createNotification({
-      id_user: Number(id_verificateur),
+    await notifyAllAdmins({
       id_dossier: dossier.id,
-      message: `Nouveau dossier « ${nom} » à vérifier (envoyé par ${req.user.prenoms} ${req.user.nom})`,
+      message: `Nouveau dossier « ${nom} » à assigner (envoyé par ${req.user.prenoms} ${req.user.nom})`,
       type: "VERIFICATION",
     });
 
@@ -464,6 +566,182 @@ async function create(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur création du dossier" });
+  }
+}
+
+async function confirmReimport(req, res) {
+  let tempFilePath = null;
+  let finalFilePath = null;
+
+  try {
+    if (!["Dispatch", "Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    const dossier = await getDossierOr404(req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (dossier.statut !== "RETOUR_DISPATCH") {
+      return res.status(400).json({
+        error: "Seul un dossier en retour dispatch peut être réimporté ainsi.",
+      });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: "Le fichier est requis" });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+
+      await saveCurrentVersionToHistory(client, dossier);
+
+      const newVersion = Number(dossier.version || 1) + 1;
+      const extension = path.extname(req.file.originalname).toLowerCase();
+      const baseName = (dossier.nom || `dossier_${dossier.id}`)
+        .replace(/\(\d+\)$/, "");
+      const versionedName = `${baseName}(${newVersion})`;
+      const finalFileName = `${versionedName}${extension}`;
+
+      tempFilePath = path.join(uploadDir, req.file.filename);
+      finalFilePath = path.join(uploadDir, finalFileName);
+
+      if (fs.existsSync(finalFilePath)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: `Le fichier "${finalFileName}" existe déjà.`,
+        });
+      }
+
+      await fs.promises.rename(tempFilePath, finalFilePath);
+      tempFilePath = null;
+
+      await client.query(
+        `UPDATE dossier SET
+           nom = $1, fichier_original = $2, version = $3,
+           statut = 'EN_VERIFICATION', comparaison_active = TRUE,
+           validation = FALSE, rejet = FALSE,
+           assigned_verification_at = CURRENT_TIMESTAMP,
+           deadline_verif_elapsed_sec = 0,
+           deadline_verif_paused_at = NULL,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [versionedName, finalFileName, newVersion, dossier.id],
+      );
+
+      await client.query(
+        `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
+         VALUES ($1, $2, $3, TRUE)
+         ON CONFLICT (id_dossier, version) DO UPDATE SET fichier_original = EXCLUDED.fichier_original, est_actuelle = TRUE`,
+        [dossier.id, newVersion, finalFileName],
+      );
+
+      await client.query(
+        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+         VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
+        [
+          req.user.id,
+          dossier.id,
+          `Nouvelle version confirmée (version ${newVersion}) — comparaison activée`,
+        ],
+      );
+
+      await client.query("COMMIT");
+
+      if (dossier.id_verificateur) {
+        await createNotification({
+          id_user: dossier.id_verificateur,
+          id_dossier: dossier.id,
+          message: `Nouvelle version du dossier « ${versionedName} » à vérifier (comparaison ancien/nouveau)`,
+          type: "VERIFICATION",
+        });
+      }
+
+      res.json(await getDossierOr404(dossier.id));
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error(err);
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      await fs.promises.unlink(tempFilePath).catch(() => {});
+    }
+    res.status(500).json({ error: "Erreur réimport du dossier" });
+  }
+}
+
+async function assignVerificateur(req, res) {
+  try {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Réservé à l'administrateur" });
+    }
+
+    const dossier = await getDossierOr404(req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (dossier.statut !== "EN_ATTENTE_VERIFICATEUR") {
+      return res.status(400).json({
+        error: "Ce dossier n'est pas en attente d'assignation vérificateur.",
+      });
+    }
+
+    const { id_verificateur } = req.body;
+    if (!id_verificateur) {
+      return res.status(400).json({ error: "Un vérificateur doit être désigné" });
+    }
+
+    if (await isUserOnConge(id_verificateur)) {
+      return res.status(400).json({
+        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+      });
+    }
+
+    const verif = await db.query(
+      `SELECT u.id, r.nom AS role FROM utilisateur u
+       JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
+      [id_verificateur],
+    );
+    if (
+      !verif.rows[0] ||
+      !["Verificateur", "Admin"].includes(verif.rows[0].role)
+    ) {
+      return res.status(400).json({ error: "Utilisateur vérificateur invalide" });
+    }
+
+    await db.query(
+      `UPDATE dossier SET
+         id_verificateur = $1,
+         statut = 'EN_VERIFICATION',
+         assigned_verification_at = CURRENT_TIMESTAMP,
+         deadline_verif_elapsed_sec = 0,
+         deadline_verif_paused_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [id_verificateur, dossier.id],
+    );
+
+    await db.query(
+      `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+       VALUES ($1, $2, 'VERIFICATION', $3, 'EN_VERIFICATION')`,
+      [
+        req.user.id,
+        dossier.id,
+        `Dossier assigné au vérificateur par ${req.user.prenoms} ${req.user.nom}`,
+      ],
+    );
+
+    await createNotification({
+      id_user: Number(id_verificateur),
+      id_dossier: dossier.id,
+      message: `Dossier « ${dossier.nom} » assigné pour vérification`,
+      type: "VERIFICATION",
+    });
+
+    res.json(await getDossierOr404(dossier.id));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur assignation vérificateur" });
   }
 }
 
@@ -495,25 +773,24 @@ async function comment(req, res) {
 
     switch (dossier.statut) {
       case "EN_VERIFICATION":
-        // Seul le Vérificateur affecté au dossier peut commenter
         roleAutorise =
-          role === "Verificateur" && dossier.id_verificateur === req.user.id;
+          (role === "Verificateur" && dossier.id_verificateur === req.user.id) ||
+          ["Admin", "super_admin"].includes(role);
         break;
 
       case "EN_VALIDATION":
-        // Seul le Validateur affecté au dossier peut commenter
         roleAutorise =
-          role === "Validateur" && dossier.id_validateur === req.user.id;
+          (role === "Validateur" && dossier.id_validateur === req.user.id) ||
+          ["Admin", "super_admin"].includes(role);
         break;
 
       case "RETOUR_DISPATCH":
-        // Seul le Dispatch affecté au dossier peut commenter
         roleAutorise =
           role === "Dispatch" && dossier.id_dispatch === req.user.id;
         break;
 
       default:
-        roleAutorise = false;
+        roleAutorise = ["Admin", "super_admin"].includes(role);
         break;
     }
 
@@ -584,6 +861,10 @@ async function comment(req, res) {
     // ------------------------------------------------------------
     await notifyMentions(commentaireFinal, dossier.id, req.user);
 
+    if (["Admin", "super_admin"].includes(role)) {
+      await markAdminModified(dossier.id);
+    }
+
     // ------------------------------------------------------------
     // 8. Retourner le dossier mis à jour
     // ------------------------------------------------------------
@@ -635,11 +916,20 @@ async function sendToValidateur(req, res) {
       return res.status(400).json({ error: "Utilisateur validateur invalide" });
     }
 
+    if (await isUserOnConge(id_validateur)) {
+      return res.status(400).json({
+        error: "Ce validateur est en congé et ne peut pas recevoir de dossier.",
+      });
+    }
+
     await db.query(
       `UPDATE dossier SET
          id_validateur = $1,
          commentaire = COALESCE($2, commentaire),
          statut = 'EN_VALIDATION',
+         assigned_validation_at = CURRENT_TIMESTAMP,
+         deadline_valid_elapsed_sec = 0,
+         deadline_valid_paused_at = NULL,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
       [id_validateur, commentaire || null, dossier.id],
@@ -688,7 +978,7 @@ async function decide(req, res) {
         .json({ error: "Ce dossier ne vous est pas assigné" });
     }
 
-    const { action, commentaire, id_archiveur } = req.body;
+    const { action, commentaire, id_archiveur, ecraser } = req.body;
     if (!["valider", "rejeter"].includes(action)) {
       return res
         .status(400)
@@ -733,8 +1023,12 @@ async function decide(req, res) {
     const statut = isValide ? "VALIDE" : "REJETE";
     const typeTraitement = isValide ? "VALIDATION" : "REJET";
 
-    await db.query(
-      `
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `
     UPDATE dossier SET
       commentaire = $1,
       statut = $2,
@@ -747,21 +1041,33 @@ async function decide(req, res) {
       updated_at = CURRENT_TIMESTAMP
     WHERE id = $6
   `,
-      [
-        commentaire,
-        statut,
-        isValide,
-        !isValide,
-        isValide ? archiveur.id : null,
-        dossier.id,
-      ],
-    );
+        [
+          commentaire,
+          statut,
+          isValide,
+          !isValide,
+          isValide ? archiveur.id : null,
+          dossier.id,
+        ],
+      );
 
-    await db.query(
-      `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+      if (ecraser === true || ecraser === "true") {
+        await clearVersionHistory(client, dossier.id);
+      }
+
+      await client.query(
+        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, dossier.id, typeTraitement, commentaire, statut],
-    );
+        [req.user.id, dossier.id, typeTraitement, commentaire, statut],
+      );
+
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
 
     // Retour au dispatch + notification
     if (dossier.id_dispatch) {
@@ -782,6 +1088,10 @@ async function decide(req, res) {
     }
 
     await notifyMentions(commentaire, dossier.id, req.user);
+
+    if (["Admin", "super_admin"].includes(req.user.role)) {
+      await markAdminModified(dossier.id);
+    }
 
     await audit({
       id_user: req.user.id,
@@ -900,22 +1210,38 @@ async function returnToDispatch(req, res) {
     const dossier = await getDossierOr404(req.params.id);
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
-    const { commentaire } = req.body;
+    const { commentaire, ecraser } = req.body;
     if (!commentaire?.trim()) {
       return res.status(400).json({ error: "Commentaire requis" });
     }
 
-    await db.query(
-      `UPDATE dossier SET commentaire = $1, statut = 'RETOUR_DISPATCH', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [commentaire, dossier.id],
-    );
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
 
-    await db.query(
-      `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+      await client.query(
+        `UPDATE dossier SET commentaire = $1, statut = 'RETOUR_DISPATCH', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+        [commentaire, dossier.id],
+      );
+
+      if (ecraser === true || ecraser === "true") {
+        await clearVersionHistory(client, dossier.id);
+      }
+
+      await client.query(
+        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
        VALUES ($1, $2, 'RETOUR', $3, 'RETOUR_DISPATCH')`,
-      [req.user.id, dossier.id, commentaire],
-    );
+        [req.user.id, dossier.id, commentaire],
+      );
+
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
 
     if (dossier.id_dispatch) {
       await createNotification({
@@ -1446,6 +1772,16 @@ async function exportDossier(req, res) {
 
     commentairePdf.text(`Version : ${dossier.version || 1}`);
 
+    if (dossier.admin_modifie) {
+      commentairePdf
+        .font("Helvetica-Bold")
+        .fillColor("red")
+        .text(
+          "⚠ Modifié par un administrateur — les données peuvent différer de l'original.",
+        );
+      commentairePdf.fillColor("black").font("Helvetica");
+    }
+
     commentairePdf.text(`Compte PC : ${dossier.compte_pc || "-"}`);
 
     commentairePdf.text(
@@ -1631,6 +1967,52 @@ async function exportDossier(req, res) {
         error: "Erreur exportation",
       });
     }
+  }
+}
+
+async function previewVersion(req, res) {
+  try {
+    const dossier = await getDossierOr404(req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+    if (!canSeeDossier(req.user, dossier)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    const versionNum = Number(req.params.version);
+    const { rows } = await db.query(
+      `SELECT fichier_original FROM dossier_version
+       WHERE id_dossier = $1 AND version = $2`,
+      [dossier.id, versionNum],
+    );
+
+    const fichier = rows[0]?.fichier_original;
+    if (!fichier) {
+      return res.status(404).json({ error: "Version introuvable" });
+    }
+
+    const filePath = path.join(uploadDir, fichier);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "Fichier introuvable sur le serveur" });
+    }
+
+    const ext = path.extname(fichier).toLowerCase();
+    const mimeTypes = {
+      ".pdf": "application/pdf",
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".txt": "text/plain; charset=utf-8",
+    };
+
+    res.setHeader("Content-Type", mimeTypes[ext] || "application/octet-stream");
+    res.setHeader("Content-Disposition", `inline; filename="${fichier}"`);
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    return res.sendFile(filePath, { etag: false, lastModified: false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur prévisualisation version" });
   }
 }
 
@@ -1828,6 +2210,9 @@ module.exports = {
   list,
   getOne,
   create,
+  checkDuplicate,
+  confirmReimport,
+  assignVerificateur,
   comment,
   sendToValidateur,
   decide,
@@ -1839,4 +2224,5 @@ module.exports = {
   downloadFile,
   archiveDossier,
   previewFile,
+  previewVersion,
 };

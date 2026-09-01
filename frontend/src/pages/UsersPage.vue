@@ -136,9 +136,37 @@
                 size="16px"
                 class="q-mr-xs"
               />
-
               {{ props.row.actif ? "Actif" : "Inactif" }}
             </q-badge>
+          </q-td>
+        </template>
+
+        <!-- PRÉSENCE (admin uniquement) -->
+        <template v-if="isAdmin" #body-cell-presence="props">
+          <q-td :props="props">
+            <q-badge
+              :color="presenceColor(props.row)"
+              class="q-px-sm"
+            >
+              {{ presenceLabel(props.row) }}
+            </q-badge>
+            <div
+              v-if="props.row.en_conge"
+              class="text-caption text-negative q-mt-xs"
+            >
+              En congé
+            </div>
+          </q-td>
+        </template>
+
+        <!-- CONGÉ -->
+        <template v-if="isAdmin" #body-cell-conge="props">
+          <q-td :props="props">
+            <span v-if="props.row.conge_debut && props.row.conge_fin">
+              {{ formatDateOnly(props.row.conge_debut) }} →
+              {{ formatDateOnly(props.row.conge_fin) }}
+            </span>
+            <span v-else class="text-grey-6">—</span>
           </q-td>
         </template>
 
@@ -180,6 +208,19 @@
                     : "Réactiver l'utilisateur"
                 }}
               </q-tooltip>
+            </q-btn>
+
+            <!-- Congé -->
+            <q-btn
+              v-if="isAdmin && props.row.id !== currentUserId"
+              flat
+              round
+              dense
+              icon="beach_access"
+              color="warning"
+              @click="openCongeDialog(props.row)"
+            >
+              <q-tooltip>Mettre en congé</q-tooltip>
             </q-btn>
           </q-td>
         </template>
@@ -450,6 +491,50 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Dialog congé -->
+    <q-dialog v-model="congeDialog">
+      <q-card style="width: 480px; max-width: 95vw">
+        <q-card-section>
+          <div class="text-h6">Congé — {{ congeUser?.prenoms }} {{ congeUser?.nom }}</div>
+        </q-card-section>
+        <q-card-section>
+          <q-input
+            v-model="congeForm.debut"
+            type="date"
+            label="Date de début *"
+            outlined
+            dense
+            class="q-mb-md"
+          />
+          <q-input
+            v-model="congeForm.fin"
+            type="date"
+            label="Date de fin *"
+            outlined
+            dense
+            hint="Pour un seul jour, sélectionnez la même date"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn
+            v-if="congeUser?.conge_debut"
+            flat
+            color="negative"
+            label="Supprimer le congé"
+            @click="clearConge"
+          />
+          <q-btn flat label="Annuler" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Enregistrer"
+            unelevated
+            :loading="congeLoading"
+            @click="saveConge"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -461,6 +546,19 @@ import { useAuthStore } from "stores/auth";
 import { getImageUrl } from "src/utils/files";
 
 const auth = useAuthStore();
+
+const isAdmin = computed(() =>
+  ["Admin", "super_admin"].includes(auth.role),
+);
+
+const presenceMap = ref({});
+
+const congeDialog = ref(false);
+const congeUser = ref(null);
+const congeLoading = ref(false);
+const congeForm = reactive({ debut: "", fin: "" });
+
+let presenceInterval = null;
 
 function imageUrl(image) {
   return getImageUrl(image);
@@ -513,62 +611,155 @@ const form = reactive(emptyForm());
  * ============================================================
  */
 
-const columns = [
-  {
-    name: "identite",
-    label: "Utilisateur",
-    field: "identite",
-    align: "left",
-  },
+const columns = computed(() => {
+  const base = [
+    {
+      name: "identite",
+      label: "Utilisateur",
+      field: "identite",
+      align: "left",
+    },
+    {
+      name: "role",
+      label: "Rôle",
+      field: "role",
+      align: "left",
+    },
+    {
+      name: "cin",
+      label: "CIN",
+      field: "cin",
+      align: "left",
+    },
+    {
+      name: "im",
+      label: "IM",
+      field: "im",
+      align: "left",
+    },
+    {
+      name: "tel",
+      label: "Téléphone",
+      field: "tel",
+      align: "left",
+    },
+    {
+      name: "statut",
+      label: "Statut",
+      field: "actif",
+      align: "left",
+    },
+  ];
 
-  {
-    name: "role",
-    label: "Rôle",
-    field: "role",
-    align: "left",
-  },
+  if (isAdmin.value) {
+    base.push(
+      {
+        name: "presence",
+        label: "Activité",
+        field: "presence",
+        align: "left",
+      },
+      {
+        name: "conge",
+        label: "Congé",
+        field: "conge",
+        align: "left",
+      },
+    );
+  }
 
-  {
-    name: "cin",
-    label: "CIN",
-    field: "cin",
-    align: "left",
-  },
-
-  {
-    name: "im",
-    label: "IM",
-    field: "im",
-    align: "left",
-  },
-
-  {
-    name: "tel",
-    label: "Téléphone",
-    field: "tel",
-    align: "left",
-  },
-
-  {
-    name: "statut",
-    label: "Statut",
-    field: "actif",
-    align: "left",
-  },
-
-  {
+  base.push({
     name: "actions",
     label: "Actions",
     field: "actions",
     align: "right",
-  },
-];
+  });
+
+  return base;
+});
 
 onUnmounted(() => {
   createDialog.value = false;
   detailDialog.value = false;
   selectedUser.value = null;
+  if (presenceInterval) clearInterval(presenceInterval);
 });
+
+function presenceLabel(user) {
+  const p = presenceMap.value[user.id];
+  if (p) return p.display_status;
+  return "déconnecté";
+}
+
+function presenceColor(user) {
+  const p = presenceMap.value[user.id];
+  if (!p?.is_online) return "grey";
+  if (p.presence_status === "typing") return "warning";
+  if (["viewing", "scrolling"].includes(p.presence_status)) return "info";
+  return "positive";
+}
+
+async function loadPresence() {
+  if (!isAdmin.value) return;
+  try {
+    const { data } = await api.get("/users/presence");
+    const map = {};
+    data.forEach((u) => {
+      map[u.id] = u;
+    });
+    presenceMap.value = map;
+  } catch {
+    // silencieux
+  }
+}
+
+function openCongeDialog(user) {
+  congeUser.value = user;
+  congeForm.debut = user.conge_debut?.slice(0, 10) || "";
+  congeForm.fin = user.conge_fin?.slice(0, 10) || "";
+  congeDialog.value = true;
+}
+
+async function saveConge() {
+  if (!congeForm.debut || !congeForm.fin) {
+    $q.notify({ type: "negative", message: "Les deux dates sont requises." });
+    return;
+  }
+  congeLoading.value = true;
+  try {
+    await api.post(`/users/${congeUser.value.id}/conge`, {
+      conge_debut: congeForm.debut,
+      conge_fin: congeForm.fin,
+    });
+    $q.notify({ type: "positive", message: "Congé enregistré." });
+    congeDialog.value = false;
+    await loadUsers();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur enregistrement congé.",
+    });
+  } finally {
+    congeLoading.value = false;
+  }
+}
+
+async function clearConge() {
+  congeLoading.value = true;
+  try {
+    await api.delete(`/users/${congeUser.value.id}/conge`);
+    $q.notify({ type: "positive", message: "Congé supprimé." });
+    congeDialog.value = false;
+    await loadUsers();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur suppression congé.",
+    });
+  } finally {
+    congeLoading.value = false;
+  }
+}
 
 async function changeUserStatus(user) {
   const action = user.actif ? "désactiver" : "réactiver";
@@ -907,6 +1098,10 @@ function viewUser(user) {
 
 onMounted(async () => {
   await Promise.all([loadUsers(), loadRoles()]);
+  if (isAdmin.value) {
+    await loadPresence();
+    presenceInterval = setInterval(loadPresence, 10000);
+  }
 });
 </script>
 

@@ -35,4 +35,21 @@ router.patch(
   userCtrl.toggleUserStatus,
 );
 
+router.post(
+  "/:id/conge",
+  authenticate,
+  authorize("Admin", "super_admin"),
+  userCtrl.setConge,
+);
+
+router.delete(
+  "/:id/conge",
+  authenticate,
+  authorize("Admin", "super_admin"),
+  userCtrl.clearConge,
+);
+
+router.post("/presence", authenticate, userCtrl.heartbeat);
+router.get("/presence", authenticate, userCtrl.presenceList);
+
 module.exports = router;

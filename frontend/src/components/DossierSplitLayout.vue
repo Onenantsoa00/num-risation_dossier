@@ -117,6 +117,9 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
   overflow: hidden;
 
   background: #202124;
+
+  display: flex;
+  flex-direction: column;
 }
 
 /*
@@ -136,7 +139,7 @@ const modeClass = computed(() => `dossier-workspace--${props.mode}`);
 .dossier-workspace--fullscreen .dossier-workspace__right {
   width: 100%;
 
-  max-height: 310px;
+  max-height: 42vh;
 
   overflow-y: auto;
 

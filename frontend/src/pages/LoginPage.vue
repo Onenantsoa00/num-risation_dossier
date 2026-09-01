@@ -38,6 +38,15 @@
           error
         }}</q-banner>
 
+        <q-banner
+          v-if="route.query.reason === 'inactivity'"
+          class="bg-orange-1 text-orange-10 q-mb-sm"
+          rounded
+          dense
+        >
+          Session expirée après 15 minutes d'inactivité. Veuillez vous reconnecter.
+        </q-banner>
+
         <q-btn
           type="submit"
           color="primary"

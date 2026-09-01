@@ -3,6 +3,8 @@ const path = require("path");
 const db = require("../config/db");
 const { publicUser } = require("./authController");
 const { audit } = require("../services/helpers");
+const { getPresenceList, updatePresence } = require("../services/presence");
+const { countAssignedDossiers, isUserOnConge } = require("../services/dossierWorkflow");
 
 async function listRoles(_req, res) {
   try {
@@ -202,7 +204,7 @@ async function createUser(req, res) {
 
 async function listUsers(req, res) {
   try {
-    const { role } = req.query;
+    const { role, with_stats } = req.query;
     let sql = `
       SELECT
         u.id,
@@ -216,6 +218,11 @@ async function listUsers(req, res) {
         u.image,
         u.actif,
         u.id_roles,
+        u.conge_debut,
+        u.conge_fin,
+        u.last_activity_at,
+        u.presence_status,
+        u.presence_dossier_id,
         r.nom AS role
       FROM utilisateur u
       LEFT JOIN roles r ON r.id = u.id_roles
@@ -227,7 +234,28 @@ async function listUsers(req, res) {
     }
     sql += " ORDER BY u.nom, u.prenoms";
     const { rows } = await db.query(sql, params);
-    res.json(rows);
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    let result = rows.map((u) => ({
+      ...u,
+      en_conge:
+        u.conge_debut &&
+        u.conge_fin &&
+        today >= u.conge_debut &&
+        today <= u.conge_fin,
+    }));
+
+    if (with_stats === "1" || with_stats === "true") {
+      result = await Promise.all(
+        result.map(async (u) => ({
+          ...u,
+          nb_dossiers: await countAssignedDossiers(u.id, u.role),
+        })),
+      );
+    }
+
+    res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur récupération des utilisateurs" });
@@ -471,10 +499,117 @@ async function updateProfile(req, res) {
   }
 }
 
+async function setConge(req, res) {
+  try {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Réservé à l'administrateur" });
+    }
+
+    const userId = Number(req.params.id);
+    const { conge_debut, conge_fin } = req.body;
+
+    if (!conge_debut || !conge_fin) {
+      return res.status(400).json({
+        error: "Les dates de début et de fin de congé sont requises.",
+      });
+    }
+
+    if (conge_fin < conge_debut) {
+      return res.status(400).json({
+        error: "La date de fin doit être postérieure ou égale à la date de début.",
+      });
+    }
+
+    const { rows } = await db.query(
+      `UPDATE utilisateur
+       SET conge_debut = $1, conge_fin = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3
+       RETURNING id, nom, prenoms, conge_debut, conge_fin`,
+      [conge_debut, conge_fin, userId],
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ error: "Utilisateur introuvable" });
+    }
+
+    await audit({
+      id_user: req.user.id,
+      action: "SET_CONGE",
+      table_name: "utilisateur",
+      record_id: userId,
+      details: { conge_debut, conge_fin },
+      ip_address: req.ip,
+    });
+
+    res.json({
+      message: "Congé enregistré.",
+      user: rows[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur enregistrement congé" });
+  }
+}
+
+async function clearConge(req, res) {
+  try {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Réservé à l'administrateur" });
+    }
+
+    const userId = Number(req.params.id);
+
+    await db.query(
+      `UPDATE utilisateur
+       SET conge_debut = NULL, conge_fin = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [userId],
+    );
+
+    res.json({ message: "Congé supprimé." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur suppression congé" });
+  }
+}
+
+async function heartbeat(req, res) {
+  try {
+    const { status, dossier_id } = req.body;
+    const validStatuses = ["online", "typing", "viewing", "scrolling", "offline"];
+    const presenceStatus = validStatuses.includes(status) ? status : "online";
+
+    await updatePresence(req.user.id, presenceStatus, dossier_id || null);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur heartbeat" });
+  }
+}
+
+async function presenceList(req, res) {
+  try {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    const list = await getPresenceList();
+    res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur récupération présence" });
+  }
+}
+
 module.exports = {
   createUser,
   listRoles,
   listUsers,
   updateProfile,
   toggleUserStatus,
+  setConge,
+  clearConge,
+  heartbeat,
+  presenceList,
 };

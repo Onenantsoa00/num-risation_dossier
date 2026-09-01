@@ -55,14 +55,20 @@ npm run dev            # http://localhost:9000
 
 ## Comptes de démonstration
 
-| Rôle         | Email        | Mot de passe   |
-| ------------ | ------------ | -------------- |
-| Admin        | test         | Admin123!      |
-| Dispatch     | 101000000001 | Dispatch123!   |
-| Vérificateur | 101000000002 | Verif123!      |
-| Validateur   | 101000000003 | Valid123!      |
-| i_archive    | 123456789012 | iarchive123!   |
-| super_admin  | 120394       | superadmin123! |
+| ID | Nom          | Prénoms       | CIN            | Mot de passe  | Rôle         |
+| -: | ------------ | ------------- | -------------- | ------------- | ------------ |
+|  1 | Admin        | Utilisateur 1 | `TEST00000001` | `password123` | Admin        |
+|  2 | Admin        | Utilisateur 2 | `TEST00000002` | `password123` | Admin        |
+|  3 | Dispatch     | Utilisateur 1 | `TEST00000003` | `password123` | Dispatch     |
+|  4 | Dispatch     | Utilisateur 2 | `TEST00000004` | `password123` | Dispatch     |
+|  5 | Verificateur | Utilisateur 1 | `TEST00000005` | `password123` | Verificateur |
+|  6 | Verificateur | Utilisateur 2 | `TEST00000006` | `password123` | Verificateur |
+|  7 | Validateur   | Utilisateur 1 | `TEST00000007` | `password123` | Validateur   |
+|  8 | Validateur   | Utilisateur 2 | `TEST00000008` | `password123` | Validateur   |
+|  9 | Super        | Admin 1       | `TEST00000009` | `password123` | super_admin  |
+| 10 | Super        | Admin 2       | `TEST00000010` | `password123` | super_admin  |
+| 11 | Archive      | Utilisateur 1 | `TEST00000011` | `password123` | i_archive    |
+| 12 | Archive      | Utilisateur 2 | `TEST00000012` | `password123` | i_archive    |
 
 ## Workflow
 

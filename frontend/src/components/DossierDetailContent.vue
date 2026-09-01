@@ -3,7 +3,21 @@
   <div v-if="dossier" class="dossier-detail-content">
     <DossierSplitLayout :mode="isDocumentFullscreen ? 'fullscreen' : 'preview'">
       <template #left>
+        <DossierComparePreview
+          v-if="showCompareView"
+          :old-preview-url="oldPreviewUrl"
+          :new-preview-url="previewUrl"
+          :old-file-name="previousVersionFile"
+          :new-file-name="dossier.fichier_original"
+          :old-loading="oldPreviewLoading"
+          :new-loading="previewLoading"
+          :fullscreen="isDocumentFullscreen"
+          @download-old="downloadOldVersion"
+          @download-new="downloadFile"
+          @toggle-fullscreen="toggleDocumentFullscreen"
+        />
         <DossierFilePreview
+          v-else
           :remote-url="previewUrl"
           :remote-name="dossier.fichier_original"
           :loading="previewLoading"
@@ -60,6 +74,10 @@
             <div class="action-role-title">
               <q-icon name="fact_check" />
               <span>Actions Vérificateur</span>
+              <q-badge v-if="deadlineLabel" :color="deadlineColor" class="q-ml-sm">
+                <q-icon name="timer" size="12px" class="q-mr-xs" />
+                {{ deadlineLabel }}
+              </q-badge>
             </div>
 
             <q-input
@@ -68,7 +86,17 @@
               outlined
               autogrow
               label="Votre commentaire"
-              class="q-mb-md"
+              class="q-mb-sm"
+            />
+
+            <q-btn
+              outline
+              color="primary"
+              label="Enregistrer"
+              class="full-width q-mb-md"
+              :loading="busy"
+              :disable="!commentaire.trim()"
+              @click="saveComment"
             />
 
             <div class="row q-col-gutter-md items-end">
@@ -162,6 +190,10 @@
             <div class="action-role-title">
               <q-icon name="verified" />
               <span>Actions Validateur</span>
+              <q-badge v-if="deadlineLabel" :color="deadlineColor" class="q-ml-sm">
+                <q-icon name="timer" size="12px" class="q-mr-xs" />
+                {{ deadlineLabel }}
+              </q-badge>
             </div>
 
             <q-input
@@ -170,7 +202,17 @@
               outlined
               autogrow
               label="Votre commentaire"
-              class="q-mb-md"
+              class="q-mb-sm"
+            />
+
+            <q-btn
+              outline
+              color="primary"
+              label="Enregistrer"
+              class="full-width q-mb-md"
+              :loading="busy"
+              :disable="!commentaire.trim()"
+              @click="saveComment"
             />
 
             <q-select
@@ -207,7 +249,8 @@
                     </q-item-label>
 
                     <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }}
+                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -241,7 +284,7 @@
                   unelevated
                   :loading="busy"
                   :disable="!commentaire.trim() || !idArchiveur"
-                  @click="decide('valider')"
+                  @click="askOverwrite('valider')"
                 />
               </div>
 
@@ -267,7 +310,7 @@
                   class="full-width"
                   :loading="busy"
                   :disable="!commentaire.trim()"
-                  @click="retourDispatch"
+                  @click="askOverwrite('retour')"
                 />
               </div>
             </div>
@@ -415,6 +458,49 @@
               <span>Actions administrateur</span>
             </div>
 
+            <q-input
+              v-model="commentaire"
+              type="textarea"
+              outlined
+              autogrow
+              label="Commentaire admin"
+              class="q-mb-sm"
+            />
+
+            <q-btn
+              outline
+              color="primary"
+              label="Enregistrer"
+              class="full-width q-mb-md"
+              :loading="busy"
+              :disable="!commentaire.trim()"
+              @click="saveComment"
+            />
+
+            <template v-if="canAssignVerificateur">
+              <q-select
+                v-model="idVerificateur"
+                :options="verificateurs"
+                label="Assigner vérificateur *"
+                outlined
+                dense
+                emit-value
+                map-options
+                popup-content-class="fullscreen-select-popup"
+                class="q-mb-sm"
+              />
+              <q-btn
+                color="primary"
+                icon="person_add"
+                label="Assigner"
+                class="full-width q-mb-md"
+                unelevated
+                :loading="busy"
+                :disable="!idVerificateur"
+                @click="assignVerificateur"
+              />
+            </template>
+
             <div class="row q-col-gutter-md">
               <div class="col-12 col-md-4">
                 <q-btn
@@ -470,6 +556,23 @@
                 class="status-chip q-mt-xs"
               >
                 {{ statusLabel(dossier.statut) }}
+              </q-badge>
+
+              <q-badge
+                v-if="deadlineLabel"
+                :color="deadlineColor"
+                class="q-ml-sm"
+              >
+                <q-icon name="timer" size="14px" class="q-mr-xs" />
+                {{ deadlineLabel }}
+              </q-badge>
+
+              <q-badge
+                v-if="dossier.admin_modifie"
+                color="negative"
+                class="q-ml-sm"
+              >
+                Modifié par admin
               </q-badge>
             </div>
 
@@ -686,6 +789,46 @@
             <q-separator class="q-my-md" />
           </template>
 
+          <!-- ADMIN : assignation vérificateur -->
+          <template v-if="canAssignVerificateur">
+            <q-separator class="q-mb-md" />
+            <div class="text-subtitle2 text-weight-bold q-mb-sm">
+              Assigner un vérificateur
+            </div>
+            <q-select
+              v-model="idVerificateur"
+              :options="verificateurs"
+              label="Vérificateur *"
+              outlined
+              dense
+              emit-value
+              map-options
+              class="q-mb-sm"
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-btn
+              color="primary"
+              icon="person_add"
+              label="Assigner et envoyer"
+              class="full-width q-mb-md"
+              unelevated
+              :loading="busy"
+              :disable="!idVerificateur"
+              @click="assignVerificateur"
+            />
+          </template>
+
           <!-- =========================
           COMMENTAIRE
           ========================= -->
@@ -761,7 +904,8 @@
                     </q-item-label>
 
                     <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }}
+                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -847,7 +991,8 @@
                     </q-item-label>
 
                     <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }}
+                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -882,7 +1027,7 @@
                 unelevated
                 :loading="busy"
                 :disable="!commentaire.trim() || !idArchiveur"
-                @click="decide('valider')"
+                @click="askOverwrite('valider')"
               />
 
               <q-btn
@@ -903,7 +1048,7 @@
               class="full-width q-mb-md"
               :loading="busy"
               :disable="!commentaire.trim()"
-              @click="retourDispatch"
+              @click="askOverwrite('retour')"
             />
           </template>
 
@@ -1007,49 +1152,12 @@
           </template>
         </q-file>
 
-        <div class="text-subtitle2 q-mb-md">
-          Nouvelles informations du dossier
-        </div>
-
-        <div class="row q-col-gutter-md">
-          <div class="col-12 col-sm-6">
-            <q-input v-model="newVersionNCompte" label="N° compte *" outlined />
-          </div>
-
-          <div class="col-12 col-sm-6">
-            <q-input v-model="newVersionNBe" label="N° BE *" outlined />
-          </div>
-
-          <div class="col-12 col-sm-6">
-            <q-input v-model="newVersionNSoa" label="N° SOA *" outlined />
-          </div>
-
-          <div class="col-12 col-sm-6">
-            <q-input
-              v-model="newVersionExoBudgetaire"
-              label="Exercice budgétaire *"
-              outlined
-            />
-          </div>
-
-          <div class="col-12">
-            <q-select
-              v-model="newVersionVerifier"
-              :options="verificateurs"
-              label="Vérificateur *"
-              outlined
-              emit-value
-              map-options
-            />
-          </div>
-        </div>
-
-        <q-banner class="bg-blue-1 text-primary q-mt-md" rounded>
+        <q-banner class="bg-blue-1 text-primary" rounded>
           <template #avatar>
             <q-icon name="info" />
           </template>
-
-          Les anciens commentaires et l'historique du dossier seront conservés.
+          Le vérificateur et le validateur précédemment assignés seront conservés.
+          Les anciens commentaires et l'historique seront maintenus.
         </q-banner>
       </q-card-section>
 
@@ -1069,6 +1177,29 @@
       </q-card-actions>
     </q-card>
   </q-dialog>
+
+  <!-- Modale écrasement ancien dossier -->
+  <q-dialog v-model="showOverwriteDialog" persistent>
+    <q-card style="width: 480px; max-width: 95vw">
+      <q-card-section>
+        <div class="text-h6">Écraser l'ancien dossier ?</div>
+        <p class="q-mt-sm text-body2">
+          Voulez-vous écraser définitivement l'ancienne version du dossier ?
+          Cette action est irréversible.
+        </p>
+      </q-card-section>
+      <q-card-actions align="right">
+        <q-btn flat label="Non" @click="cancelOverwrite" />
+        <q-btn
+          color="negative"
+          label="Oui, écraser"
+          unelevated
+          :loading="busy"
+          @click="confirmOverwrite"
+        />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup>
@@ -1080,6 +1211,8 @@ import { useAuthStore } from "stores/auth";
 import { statusColor, statusLabel } from "src/utils/status";
 import DossierSplitLayout from "components/DossierSplitLayout.vue";
 import DossierFilePreview from "components/DossierFilePreview.vue";
+import DossierComparePreview from "components/DossierComparePreview.vue";
+import { useDeadlineTimer } from "src/composables/useDeadlineTimer";
 
 const route = useRoute();
 
@@ -1100,11 +1233,22 @@ const dossier = ref(null);
 const loading = ref(true);
 const busy = ref(false);
 const commentaire = ref("");
+
+const { label: deadlineLabel, color: deadlineColor } = useDeadlineTimer(
+  dossier,
+  auth,
+);
 const idValidateur = ref(null);
 const validateurs = ref([]);
 const previewUrl = ref(null);
 const previewLoading = ref(false);
+const oldPreviewUrl = ref(null);
+const oldPreviewLoading = ref(false);
+const previousVersionFile = ref("");
 const showReuploadDialog = ref(false);
+const showOverwriteDialog = ref(false);
+const pendingAction = ref(null);
+const idVerificateur = ref(null);
 
 const newVersionFile = ref(null);
 
@@ -1161,9 +1305,15 @@ const canComment = computed(() => {
     return false;
   }
 
-  // Les rôles suivants ne commentent jamais
-  if (["i_archive", "Admin", "super_admin"].includes(auth.role)) {
+  // Les rôles suivants ne commentent jamais (sauf admin en intervention)
+  if (["i_archive"].includes(auth.role)) {
     return false;
+  }
+
+  if (["Admin", "super_admin"].includes(auth.role)) {
+    return ["EN_VERIFICATION", "EN_VALIDATION", "EN_ATTENTE_VERIFICATEUR"].includes(
+      dossier.value.statut,
+    );
   }
 
   switch (dossier.value.statut) {
@@ -1187,6 +1337,10 @@ const hideCommentSection = computed(() => {
 
 function onDocumentFullscreen(value) {
   isDocumentFullscreen.value = value;
+}
+
+function toggleDocumentFullscreen() {
+  isDocumentFullscreen.value = !isDocumentFullscreen.value;
 }
 
 async function loadArchiveurs() {
@@ -1260,20 +1414,20 @@ async function archiveDossier() {
 
 async function loadVerificateurs() {
   const { data } = await api.get("/users", {
-    params: {
-      role: "Verificateur",
-    },
+    params: { role: "Verificateur", with_stats: 1 },
   });
 
   const admins = await api.get("/users", {
-    params: {
-      role: "Admin",
-    },
+    params: { role: "Admin", with_stats: 1 },
   });
 
   verificateurs.value = [...data, ...admins.data].map((u) => ({
-    label: `${u.prenoms} ${u.nom} (${u.email})`,
+    label: `${u.prenoms} ${u.nom}`,
     value: u.id,
+    im: u.im,
+    nb_dossiers: u.nb_dossiers,
+    en_conge: u.en_conge,
+    disable: u.en_conge,
   }));
 }
 
@@ -1319,6 +1473,18 @@ const canReuploadVersion = computed(() => {
   return dossier.value.statut === "RETOUR_DISPATCH";
 });
 
+const showCompareView = computed(() => {
+  if (!dossier.value?.comparaison_active) return false;
+  return Number(dossier.value.version) > 1 || !!previousVersionFile.value;
+});
+
+const canAssignVerificateur = computed(() => {
+  return (
+    ["Admin", "super_admin"].includes(auth.role) &&
+    dossier.value?.statut === "EN_ATTENTE_VERIFICATEUR"
+  );
+});
+
 function openReuploadDialog() {
   newVersionFile.value = null;
 
@@ -1344,64 +1510,13 @@ async function reuploadVersion() {
     return;
   }
 
-  if (!newVersionNCompte.value.trim()) {
-    $q.notify({
-      type: "negative",
-      message: "Le N° compte est requis.",
-    });
-    return;
-  }
-
-  if (!newVersionNBe.value.trim()) {
-    $q.notify({
-      type: "negative",
-      message: "Le N° BE est requis.",
-    });
-    return;
-  }
-
-  if (!newVersionNSoa.value.trim()) {
-    $q.notify({
-      type: "negative",
-      message: "Le N° SOA est requis.",
-    });
-    return;
-  }
-
-  if (!newVersionExoBudgetaire.value.trim()) {
-    $q.notify({
-      type: "negative",
-      message: "L'exercice budgétaire est requis.",
-    });
-    return;
-  }
-
-  if (!newVersionVerifier.value) {
-    $q.notify({
-      type: "negative",
-      message: "Veuillez sélectionner un vérificateur.",
-    });
-    return;
-  }
-
   reuploadLoading.value = true;
 
   try {
     const fd = new FormData();
-
-    fd.append("n_compte", newVersionNCompte.value.trim());
-
-    fd.append("n_be", newVersionNBe.value.trim());
-
-    fd.append("n_soa", newVersionNSoa.value.trim());
-
-    fd.append("exo_budgetaire", newVersionExoBudgetaire.value.trim());
-
-    fd.append("id_verificateur", newVersionVerifier.value);
-
     fd.append("fichier", newVersionFile.value);
 
-    await api.post(`/dossiers/${props.dossierId}/reupload`, fd);
+    await api.post(`/dossiers/${props.dossierId}/confirm-reimport`, fd);
 
     $q.notify({
       type: "positive",
@@ -1461,6 +1576,37 @@ function revokePreview() {
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value);
     previewUrl.value = null;
+  }
+  if (oldPreviewUrl.value) {
+    URL.revokeObjectURL(oldPreviewUrl.value);
+    oldPreviewUrl.value = null;
+  }
+}
+
+async function loadOldPreview(versionNum) {
+  if (!versionNum) return;
+  if (oldPreviewUrl.value) {
+    URL.revokeObjectURL(oldPreviewUrl.value);
+    oldPreviewUrl.value = null;
+  }
+  oldPreviewLoading.value = true;
+  const token = localStorage.getItem("token");
+  try {
+    const response = await fetch(
+      `/api/dossiers/${props.dossierId}/preview-version/${versionNum}?t=${Date.now()}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      },
+    );
+    if (response.ok) {
+      const blob = await response.blob();
+      oldPreviewUrl.value = URL.createObjectURL(blob);
+    }
+  } catch (e) {
+    console.error("Erreur preview ancienne version:", e);
+  } finally {
+    oldPreviewLoading.value = false;
   }
 }
 
@@ -1549,6 +1695,23 @@ async function load() {
     const { data } = await api.get(`/dossiers/${props.dossierId}`);
     dossier.value = data;
     commentaire.value = data.commentaire || "";
+    if (data.id_validateur) {
+      idValidateur.value = data.id_validateur;
+    }
+
+    if (data.previous_version) {
+      previousVersionFile.value = data.previous_version.fichier_original;
+      dossier.value.previous_version = data.previous_version;
+      await loadOldPreview(data.previous_version.version);
+    } else if (data.comparaison_active && Number(data.version) > 1) {
+      const prevVer = Number(data.version) - 1;
+      dossier.value.previous_version = { version: prevVer };
+      previousVersionFile.value = `version_${prevVer}`;
+      await loadOldPreview(prevVer);
+    } else {
+      previousVersionFile.value = "";
+    }
+
     emit("updated", data);
     await loadPreview();
   } catch (e) {
@@ -1562,14 +1725,21 @@ async function load() {
 }
 
 async function loadValidateurs() {
-  const { data } = await api.get("/users", { params: { role: "Validateur" } });
-  const admins = await api.get("/users", { params: { role: "Admin" } });
+  const { data } = await api.get("/users", {
+    params: { role: "Validateur", with_stats: 1 },
+  });
+  const admins = await api.get("/users", {
+    params: { role: "Admin", with_stats: 1 },
+  });
   validateurs.value = [...data, ...admins.data].map((u) => ({
     label: `${u.prenoms} ${u.nom}`,
     value: u.id,
     image: u.image,
     im: u.im,
     email: u.email,
+    nb_dossiers: u.nb_dossiers,
+    en_conge: u.en_conge,
+    disable: u.en_conge,
   }));
 }
 
@@ -1616,7 +1786,58 @@ async function sendValidateur() {
   }
 }
 
-async function decide(action) {
+async function assignVerificateur() {
+  busy.value = true;
+  try {
+    await api.post(`/dossiers/${props.dossierId}/assign-verificateur`, {
+      id_verificateur: idVerificateur.value,
+    });
+    $q.notify({ type: "positive", message: "Vérificateur assigné" });
+    await load();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur assignation",
+    });
+  } finally {
+    busy.value = false;
+  }
+}
+
+function askOverwrite(action) {
+  if (
+    dossier.value?.comparaison_active &&
+    auth.role === "Validateur" &&
+    (action === "valider" || action === "retour")
+  ) {
+    pendingAction.value = action;
+    showOverwriteDialog.value = true;
+    return;
+  }
+  if (action === "valider") {
+    decide("valider", false);
+  } else if (action === "retour") {
+    retourDispatch(false);
+  }
+}
+
+function cancelOverwrite() {
+  showOverwriteDialog.value = false;
+  pendingAction.value = null;
+}
+
+async function confirmOverwrite() {
+  const action = pendingAction.value;
+  showOverwriteDialog.value = false;
+  pendingAction.value = null;
+  if (action === "valider") {
+    await decide("valider", true);
+  } else if (action === "retour") {
+    await retourDispatch(true);
+  }
+}
+
+async function decide(action, ecraser = false) {
   if (action === "valider" && !idArchiveur.value) {
     $q.notify({
       type: "negative",
@@ -1642,6 +1863,7 @@ async function decide(action) {
       action,
       commentaire: commentaire.value,
       id_archiveur: action === "valider" ? idArchiveur.value : null,
+      ecraser,
     });
 
     $q.notify({
@@ -1666,11 +1888,12 @@ async function decide(action) {
   }
 }
 
-async function retourDispatch() {
+async function retourDispatch(ecraser = false) {
   busy.value = true;
   try {
     await api.post(`/dossiers/${props.dossierId}/retour-dispatch`, {
       commentaire: commentaire.value,
+      ecraser,
     });
     $q.notify({ type: "info", message: "Retour Dispatch" });
     await load();
@@ -1700,6 +1923,28 @@ async function adminAction(action) {
     });
   } finally {
     busy.value = false;
+  }
+}
+
+async function downloadOldVersion() {
+  try {
+    const version = dossier.value?.previous_version?.version;
+    if (!version) return;
+    const token = localStorage.getItem("token");
+    const response = await fetch(
+      `/api/dossiers/${props.dossierId}/preview-version/${version}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!response.ok) throw new Error("Erreur");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = previousVersionFile.value || "ancien_fichier";
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    $q.notify({ type: "negative", message: "Impossible de télécharger l'ancien fichier." });
   }
 }
 
