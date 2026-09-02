@@ -1,11 +1,51 @@
 /**
  * Calcul des deadlines en heures ouvrées uniquement.
  * Plages : 08h-12h et 14h-16h (fuseau Europe/Paris).
+ * Jours ouvrés : lundi à vendredi, hors jours fériés.
  * Durée totale : 16 heures ouvrées.
  */
 
 const TIMEZONE = "Europe/Paris";
 const DEADLINE_WORKING_SECONDS = 16 * 3600; // 16 heures ouvrées
+
+/** Cache des jours fériés (dates au format YYYY-MM-DD) */
+let jourFeriesCache = [];
+let jourFeriesCacheDate = null;
+
+/**
+ * Charge les jours fériés depuis la BDD (cache 1h).
+ */
+async function loadJourFeriesFromDB() {
+  try {
+    const db = require("../config/db");
+    const { rows } = await db.query(
+      `SELECT date_ferie FROM jour_ferier ORDER BY date_ferie ASC`
+    );
+    jourFeriesCache = rows.map((r) => r.date_ferie);
+    jourFeriesCacheDate = Date.now();
+  } catch {
+    // Table peut ne pas encore exister
+    jourFeriesCache = [];
+    jourFeriesCacheDate = Date.now();
+  }
+}
+
+/**
+ * Retourne les jours fériés (avec cache 1h).
+ */
+async function getJourFeries() {
+  if (!jourFeriesCacheDate || Date.now() - jourFeriesCacheDate > 3600000) {
+    await loadJourFeriesFromDB();
+  }
+  return jourFeriesCache;
+}
+
+/**
+ * Force le rechargement du cache jours fériés.
+ */
+function invalidateJourFeriesCache() {
+  jourFeriesCacheDate = null;
+}
 
 function getParisParts(date) {
   const formatter = new Intl.DateTimeFormat("en-GB", {
@@ -34,13 +74,36 @@ function getParisParts(date) {
 }
 
 function toParisDate(parts) {
-  // Construire une date UTC approximative pour itération
   return new Date(
     Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second),
   );
 }
 
-function isWorkingMinute(parts) {
+/**
+ * Vérifie si le jour est un samedi (6) ou dimanche (0) en Europe/Paris.
+ */
+function isWeekend(parts) {
+  const date = toParisDate(parts);
+  const dayOfWeek = date.getUTCDay();
+  return dayOfWeek === 0 || dayOfWeek === 6;
+}
+
+/**
+ * Vérifie si la date correspond à un jour férié.
+ */
+function isJourFerier(parts, jourFeries) {
+  if (!jourFeries || jourFeries.length === 0) return false;
+  const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  return jourFeries.includes(dateStr);
+}
+
+function isWorkingMinute(parts, jourFeries) {
+  // Samedi / dimanche = jamais travaillé
+  if (isWeekend(parts)) return false;
+
+  // Jour férié = jamais travaillé
+  if (isJourFerier(parts, jourFeries)) return false;
+
   const { hour, minute } = parts;
   const totalMin = hour * 60 + minute;
   const morningStart = 8 * 60;
@@ -88,7 +151,7 @@ function advanceOneMinute(parts) {
 /**
  * Compte les secondes ouvrées entre deux dates.
  */
-function countWorkingSeconds(fromDate, toDate, congeDebut, congeFin) {
+function countWorkingSeconds(fromDate, toDate, congeDebut, congeFin, jourFeries) {
   if (!fromDate || !toDate) return 0;
   const start = new Date(fromDate);
   const end = new Date(toDate);
@@ -107,7 +170,7 @@ function countWorkingSeconds(fromDate, toDate, congeDebut, congeFin) {
     if (currentStr >= endStr) break;
 
     if (
-      isWorkingMinute(parts) &&
+      isWorkingMinute(parts, jourFeries) &&
       !isOnCongeDate(parts, congeDebut, congeFin)
     ) {
       seconds += 60;
@@ -123,7 +186,8 @@ function countWorkingSeconds(fromDate, toDate, congeDebut, congeFin) {
 /**
  * Calcule le temps restant en secondes ouvrées pour un dossier.
  */
-function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
+async function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
+  const jourFeries = await getJourFeries();
   const isVerif = type === "verification";
   const assignedAt = isVerif
     ? dossier.assigned_verification_at
@@ -136,7 +200,7 @@ function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
     : dossier.deadline_valid_paused_at;
 
   if (!assignedAt) {
-    const isPaused = isDeadlinePausedNow(congeDebut, congeFin);
+    const isPaused = isDeadlinePausedNow(congeDebut, congeFin, jourFeries);
     return { remaining: DEADLINE_WORKING_SECONDS, isPaused };
   }
 
@@ -144,12 +208,12 @@ function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
   let additional = 0;
 
   if (pausedAt) {
-    // Timer en pause (congé) : ne pas compter depuis la pause
     additional = countWorkingSeconds(
       new Date(assignedAt),
       new Date(pausedAt),
       congeDebut,
       congeFin,
+      jourFeries,
     );
   } else {
     additional = countWorkingSeconds(
@@ -157,14 +221,15 @@ function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
       now,
       congeDebut,
       congeFin,
+      jourFeries,
     );
   }
 
   const totalElapsed = elapsedStored + additional;
   const remaining = Math.max(0, DEADLINE_WORKING_SECONDS - totalElapsed);
   const isPaused =
-    isDeadlinePausedNow(congeDebut, congeFin) ||
-    (pausedAt && !isWorkingMinute(getParisParts(new Date())));
+    isDeadlinePausedNow(congeDebut, congeFin, jourFeries) ||
+    (pausedAt && !isWorkingMinute(getParisParts(new Date()), jourFeries));
 
   return { remaining, isPaused };
 }
@@ -178,10 +243,10 @@ function formatRemaining(seconds, isPaused = false) {
   return isPaused ? `${base} (pause)` : base;
 }
 
-function isDeadlinePausedNow(congeDebut, congeFin) {
+function isDeadlinePausedNow(congeDebut, congeFin, jourFeries) {
   const parts = getParisParts(new Date());
   if (isOnCongeDate(parts, congeDebut, congeFin)) return true;
-  return !isWorkingMinute(parts);
+  return !isWorkingMinute(parts, jourFeries);
 }
 
 function isDeadlineExpired(remaining) {
@@ -197,4 +262,7 @@ module.exports = {
   isWorkingMinute,
   getParisParts,
   isDeadlinePausedNow,
+  getJourFeries,
+  invalidateJourFeriesCache,
+  loadJourFeriesFromDB,
 };

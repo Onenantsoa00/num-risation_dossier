@@ -4,12 +4,26 @@ import {
   getDeadlineRemaining,
   getDeadlineType,
 } from "src/utils/deadline";
+import { api } from "boot/axios";
 
 export function useDeadlineTimer(dossierRef, authStore) {
   const remainingSec = ref(null);
   const isPaused = ref(false);
   const label = ref("");
   let interval = null;
+
+  /** Jours fériés chargés depuis l'API */
+  const jourFeries = ref([]);
+
+  async function loadJourFeries() {
+    try {
+      const { data } = await api.get("/jours-feries");
+      jourFeries.value = data.map((j) => j.date_ferie);
+    } catch {
+      // La route peut ne pas encore exister
+      jourFeries.value = [];
+    }
+  }
 
   function recompute() {
     const dossier = unref(dossierRef);
@@ -26,7 +40,13 @@ export function useDeadlineTimer(dossierRef, authStore) {
       return;
     }
 
-    const result = getDeadlineRemaining(dossier, type, null, null);
+    const result = getDeadlineRemaining(
+      dossier,
+      type,
+      null,
+      null,
+      jourFeries.value,
+    );
     remainingSec.value = result.remainingSec;
     isPaused.value = result.isPaused;
     label.value = formatDeadlineLabel(result.remainingSec, result.isPaused);
@@ -34,7 +54,8 @@ export function useDeadlineTimer(dossierRef, authStore) {
 
   watch(() => unref(dossierRef), recompute, { deep: true, immediate: true });
 
-  onMounted(() => {
+  onMounted(async () => {
+    await loadJourFeries();
     recompute();
     interval = setInterval(recompute, 1000);
   });

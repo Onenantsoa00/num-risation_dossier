@@ -55,20 +55,20 @@ npm run dev            # http://localhost:9000
 
 ## Comptes de démonstration
 
-| ID | Nom          | Prénoms       | CIN            | Mot de passe  | Rôle         |
-| -: | ------------ | ------------- | -------------- | ------------- | ------------ |
-|  1 | Admin        | Utilisateur 1 | `TEST00000001` | `password123` | Admin        |
-|  2 | Admin        | Utilisateur 2 | `TEST00000002` | `password123` | Admin        |
-|  3 | Dispatch     | Utilisateur 1 | `TEST00000003` | `password123` | Dispatch     |
-|  4 | Dispatch     | Utilisateur 2 | `TEST00000004` | `password123` | Dispatch     |
-|  5 | Verificateur | Utilisateur 1 | `TEST00000005` | `password123` | Verificateur |
-|  6 | Verificateur | Utilisateur 2 | `TEST00000006` | `password123` | Verificateur |
-|  7 | Validateur   | Utilisateur 1 | `TEST00000007` | `password123` | Validateur   |
-|  8 | Validateur   | Utilisateur 2 | `TEST00000008` | `password123` | Validateur   |
-|  9 | Super        | Admin 1       | `TEST00000009` | `password123` | super_admin  |
-| 10 | Super        | Admin 2       | `TEST00000010` | `password123` | super_admin  |
-| 11 | Archive      | Utilisateur 1 | `TEST00000011` | `password123` | i_archive    |
-| 12 | Archive      | Utilisateur 2 | `TEST00000012` | `password123` | i_archive    |
+|  ID | Nom          | Prénoms       | CIN            | Mot de passe  | Rôle         |
+| --: | ------------ | ------------- | -------------- | ------------- | ------------ |
+|   1 | Admin        | Utilisateur 1 | `TEST00000001` | `password123` | Admin        |
+|   2 | Admin        | Utilisateur 2 | `TEST00000002` | `password123` | Admin        |
+|   3 | Dispatch     | Utilisateur 1 | `TEST00000003` | `password123` | Dispatch     |
+|   4 | Dispatch     | Utilisateur 2 | `TEST00000004` | `password123` | Dispatch     |
+|   5 | Verificateur | Utilisateur 1 | `TEST00000005` | `password123` | Verificateur |
+|   6 | Verificateur | Utilisateur 2 | `TEST00000006` | `password123` | Verificateur |
+|   7 | Validateur   | Utilisateur 1 | `TEST00000007` | `password123` | Validateur   |
+|   8 | Validateur   | Utilisateur 2 | `TEST00000008` | `password123` | Validateur   |
+|   9 | Super        | Admin 1       | `TEST00000009` | `password123` | super_admin  |
+|  10 | Super        | Admin 2       | `TEST00000010` | `password123` | super_admin  |
+|  11 | Archive      | Utilisateur 1 | `TEST00000011` | `password123` | i_archive    |
+|  12 | Archive      | Utilisateur 2 | `TEST00000012` | `password123` | i_archive    |
 
 ## Workflow
 
@@ -179,3 +179,9 @@ Tu dois obtenir :
 HTTP/1.1 200 OK
 
 Si ça fonctionne, cela signifie que Node accepte bien les connexions sur l'adresse réseau."
+
+voici l'erreur quand c'est le même dossier, l'ancien dossier n'affiche pas mais le nouveau dossier s'affiche et voici l'erreur dans le console: "DossierCreatePage.vue:224
+
+       POST http://localhost:9000/api/dossiers 409 (Conflict)"
+
+et le timer reste toujours en pause or il devrait marcher entre 08h - 12h et entre 14h - 16h, ajoute le fonctionnalité, quand c'est le samedi est dimanche il ne marche pas et dans le partie utilisateur pour le role admin et super_admin ajoute le mode jour ferier ou les gens ne travaille pas est le timer ne marche pas n'en plus à ce jours là

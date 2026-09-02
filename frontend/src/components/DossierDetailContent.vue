@@ -3,8 +3,73 @@
   <div v-if="dossier" class="dossier-detail-content">
     <DossierSplitLayout :mode="isDocumentFullscreen ? 'fullscreen' : 'preview'">
       <template #left>
+        <!-- =====================================================
+             DOSSIER LIÉ : affichage côte à côte
+             Ancien à gauche, Nouveau à droite
+        ===================================================== -->
+        <div v-if="dossierLie" class="dossier-lie-split">
+          <!-- ANCIEN DOSSIER (gauche) -->
+          <div class="dossier-lie-panel">
+            <div class="dossier-lie-header dossier-lie-header--old">
+              <q-icon name="history" size="18px" class="q-mr-xs" />
+              <span>Ancien dossier</span>
+              <q-badge color="grey" class="q-ml-sm" text-color="white">
+                {{ dossierLie.statut }}
+              </q-badge>
+            </div>
+            <div class="dossier-lie-preview">
+              <DossierFilePreview
+                :remote-url="dossierLiePreviewUrl"
+                :remote-name="dossierLie.fichier_original"
+                :loading="dossierLiePreviewLoading"
+                can-download
+              />
+            </div>
+            <div class="dossier-lie-footer">
+              <div class="text-caption text-grey-7">
+                {{ dossierLie.nom || "—" }}
+              </div>
+              <div class="text-caption text-grey-6">
+                Fichier : {{ dossierLie.fichier_original || "—" }}
+              </div>
+            </div>
+          </div>
+
+          <!-- NOUVEAU DOSSIER (droite) -->
+          <div class="dossier-lie-panel">
+            <div class="dossier-lie-header dossier-lie-header--new">
+              <q-icon name="fiber_new" size="18px" class="q-mr-xs" />
+              <span>Nouveau dossier</span>
+              <q-badge color="primary" class="q-ml-sm" text-color="white">
+                {{ dossier.statut }}
+              </q-badge>
+            </div>
+            <div class="dossier-lie-preview">
+              <DossierFilePreview
+                :remote-url="previewUrl"
+                :remote-name="dossier.fichier_original"
+                :loading="previewLoading"
+                can-download
+                @download="downloadFile"
+                @fullscreen="onDocumentFullscreen"
+              />
+            </div>
+            <div class="dossier-lie-footer">
+              <div class="text-caption text-grey-7">
+                {{ dossier.nom || "—" }}
+              </div>
+              <div class="text-caption text-grey-6">
+                Fichier : {{ dossier.fichier_original || "—" }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =====================================================
+             NORMAL : pas de dossier lié
+        ===================================================== -->
         <DossierComparePreview
-          v-if="showCompareView"
+          v-else-if="showCompareView"
           :old-preview-url="oldPreviewUrl"
           :new-preview-url="previewUrl"
           :old-file-name="previousVersionFile"
@@ -593,6 +658,32 @@
           <div class="text-caption text-grey-7 q-mb-md">
             Créé le {{ formatDate(dossier.created_at) }}
           </div>
+
+          <!-- =====================================================
+               BANNIÈRE DOSSIER LIÉ
+          ===================================================== -->
+          <q-banner v-if="dossierLie" class="bg-blue-1 text-blue-10 q-mb-md" rounded>
+            <template #avatar>
+              <q-icon name="link" />
+            </template>
+            <div class="text-weight-medium">
+              Dossier lié : « {{ dossierLie.nom }} »
+            </div>
+            <div class="text-caption">
+              Statut : {{ statusLabel(dossierLie.statut) }}
+            </div>
+            <div v-if="canDeleteOldLinked" class="q-mt-sm">
+              <q-btn
+                color="negative"
+                icon="delete"
+                label="Supprimer l'ancien dossier"
+                size="sm"
+                unelevated
+                :loading="deleteOldLinkedLoading"
+                @click="deleteOldLinked"
+              />
+            </div>
+          </q-banner>
 
           <!-- =========================
          RESUME DU DOSSIER
@@ -1245,6 +1336,12 @@ const previewLoading = ref(false);
 const oldPreviewUrl = ref(null);
 const oldPreviewLoading = ref(false);
 const previousVersionFile = ref("");
+
+/** Dossier lié (ancien ou nouveau) */
+const dossierLie = ref(null);
+const dossierLiePreviewUrl = ref(null);
+const dossierLiePreviewLoading = ref(false);
+const deleteOldLinkedLoading = ref(false);
 const showReuploadDialog = ref(false);
 const showOverwriteDialog = ref(false);
 const pendingAction = ref(null);
@@ -1474,6 +1571,8 @@ const canReuploadVersion = computed(() => {
 });
 
 const showCompareView = computed(() => {
+  // Si on a un dossier lié, on affiche la vue côte à côte (pas le compare)
+  if (dossierLie.value) return false;
   if (!dossier.value?.comparaison_active) return false;
   return Number(dossier.value.version) > 1 || !!previousVersionFile.value;
 });
@@ -1483,6 +1582,12 @@ const canAssignVerificateur = computed(() => {
     ["Admin", "super_admin"].includes(auth.role) &&
     dossier.value?.statut === "EN_ATTENTE_VERIFICATEUR"
   );
+});
+
+/** Le validateur peut supprimer l'ancien dossier lié */
+const canDeleteOldLinked = computed(() => {
+  if (!dossierLie.value) return false;
+  return ["Validateur", "Admin", "super_admin"].includes(auth.role);
 });
 
 function openReuploadDialog() {
@@ -1610,6 +1715,63 @@ async function loadOldPreview(versionNum) {
   }
 }
 
+/**
+ * Charger le preview du dossier lié (ancien ou nouveau).
+ */
+async function loadDossierLiePreview() {
+  if (!dossierLie.value?.id) return;
+  if (dossierLiePreviewUrl.value) {
+    URL.revokeObjectURL(dossierLiePreviewUrl.value);
+    dossierLiePreviewUrl.value = null;
+  }
+  dossierLiePreviewLoading.value = true;
+  const token = localStorage.getItem("token");
+  try {
+    const response = await fetch(
+      `/api/dossiers/${dossierLie.value.id}/preview?t=${Date.now()}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      },
+    );
+    if (response.ok) {
+      const blob = await response.blob();
+      if (blob.size) {
+        dossierLiePreviewUrl.value = URL.createObjectURL(blob);
+      }
+    }
+  } catch (e) {
+    console.error("Erreur preview dossier lié:", e);
+  } finally {
+    dossierLiePreviewLoading.value = false;
+  }
+}
+
+/**
+ * Supprimer l'ancien dossier lié (réservé au validateur).
+ */
+async function deleteOldLinked() {
+  if (!dossierLie.value?.id) return;
+  deleteOldLinkedLoading.value = true;
+  try {
+    await api.post(`/dossiers/${dossier.value.id}/delete-old-linked`);
+    $q.notify({ type: "positive", message: "Ancien dossier supprimé." });
+    dossierLie.value = null;
+    if (dossierLiePreviewUrl.value) {
+      URL.revokeObjectURL(dossierLiePreviewUrl.value);
+      dossierLiePreviewUrl.value = null;
+    }
+    await load();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur suppression.",
+    });
+  } finally {
+    deleteOldLinkedLoading.value = false;
+  }
+}
+
 async function loadPreview() {
   revokePreview();
 
@@ -1694,6 +1856,7 @@ async function load() {
   try {
     const { data } = await api.get(`/dossiers/${props.dossierId}`);
     dossier.value = data;
+    dossierLie.value = data.dossier_lie || null;
     commentaire.value = data.commentaire || "";
     if (data.id_validateur) {
       idValidateur.value = data.id_validateur;
@@ -1710,6 +1873,11 @@ async function load() {
       await loadOldPreview(prevVer);
     } else {
       previousVersionFile.value = "";
+    }
+
+    // Charger le preview du dossier lié si présent
+    if (dossierLie.value) {
+      await loadDossierLiePreview();
     }
 
     emit("updated", data);
@@ -2094,5 +2262,64 @@ defineExpose({ reload: load });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ============================================================
+   DOSSIER LIÉ : affichage côte à côte
+   ============================================================ */
+.dossier-lie-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.dossier-lie-panel {
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #e3e6ea;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.dossier-lie-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 14px;
+  border-bottom: 1px solid #e3e6ea;
+}
+
+.dossier-lie-header--old {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.dossier-lie-header--new {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.dossier-lie-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #eef1f5;
+}
+
+.dossier-lie-footer {
+  padding: 8px 14px;
+  border-top: 1px solid #e3e6ea;
+  background: #f9fafb;
+}
+
+@media (max-width: 900px) {
+  .dossier-lie-split {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

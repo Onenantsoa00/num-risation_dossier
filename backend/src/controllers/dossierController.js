@@ -46,7 +46,12 @@ const DOSSIER_SELECT = `
     uar.nom AS archiveur_nom,
     uar.prenoms AS archiveur_prenoms,
     uar.email AS archiveur_email,
-    uar.im AS archiveur_im
+    uar.im AS archiveur_im,
+
+    dl.nom AS dossier_lie_nom,
+    dl.statut AS dossier_lie_statut,
+    dl.fichier_original AS dossier_lie_fichier,
+    dl.id AS dossier_lie_id_ref
 
   FROM dossier d
 
@@ -64,6 +69,9 @@ const DOSSIER_SELECT = `
 
   LEFT JOIN utilisateur uar
     ON uar.id = d.id_archiveur
+
+  LEFT JOIN dossier dl
+    ON dl.id = d.dossier_lie_id
 `;
 
 async function getDossierOr404(id) {
@@ -86,13 +94,11 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
     congeFin = rows[0]?.conge_fin;
   }
 
-  const enriched = { ...dossier };
-
-  if (
+  const enriched = { ...dossier };    if (
     dossier.statut === "EN_VERIFICATION" &&
     dossier.id_verificateur === userId
   ) {
-    const { remaining, isPaused } = getDeadlineRemaining(
+    const { remaining, isPaused } = await getDeadlineRemaining(
       dossier,
       "verification",
       congeDebut,
@@ -107,7 +113,7 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
     dossier.statut === "EN_VALIDATION" &&
     dossier.id_validateur === userId
   ) {
-    const { remaining, isPaused } = getDeadlineRemaining(
+    const { remaining, isPaused } = await getDeadlineRemaining(
       dossier,
       "validation",
       congeDebut,
@@ -394,11 +400,27 @@ async function getOne(req, res) {
       req.user.role,
     );
 
+    // ================================================================
+    // Charger le dossier lié (ancien ou nouveau)
+    // ================================================================
+    let dossier_lie = null;
+    if (dossier.dossier_lie_id_ref) {
+      dossier_lie = await getDossierOr404(dossier.dossier_lie_id_ref);
+      if (dossier_lie) {
+        dossier_lie = await enrichDossierWithDeadline(
+          dossier_lie,
+          req.user.id,
+          req.user.role,
+        );
+      }
+    }
+
     res.json({
       ...enriched,
       traitements: traitements.rows,
       versions,
       previous_version: previousVersion,
+      dossier_lie,
     });
   } catch (err) {
     console.error(err);
@@ -476,9 +498,9 @@ async function create(req, res) {
 
       if (duplicate) {
         return res.status(409).json({
-          code: "DUPLICATE_RETOUR_DISPATCH",
+          code: "DUPLICATE_ACTIVE",
           error:
-            "Un dossier identique existe déjà avec le statut Retour Dispatch.",
+            "Un dossier identique existe déjà avec le statut " + duplicate.statut + ".",
           existing_dossier_id: duplicate.id,
           existing_dossier: duplicate,
         });
@@ -593,13 +615,14 @@ async function confirmReimport(req, res) {
     try {
       await client.query("BEGIN");
 
-      await saveCurrentVersionToHistory(client, dossier);
-
-      const newVersion = Number(dossier.version || 1) + 1;
+      // ================================================================
+      // 1. Créer un NOUVEAU dossier (ne pas modifier l'ancien)
+      // ================================================================
+      const newVersion = 2;
       const extension = path.extname(req.file.originalname).toLowerCase();
       const baseName = (dossier.nom || `dossier_${dossier.id}`)
         .replace(/\(\d+\)$/, "");
-      const versionedName = `${baseName}(${newVersion})`;
+      const versionedName = `${baseName}(2)`;
       const finalFileName = `${versionedName}${extension}`;
 
       tempFilePath = path.join(uploadDir, req.file.filename);
@@ -615,48 +638,98 @@ async function confirmReimport(req, res) {
       await fs.promises.rename(tempFilePath, finalFilePath);
       tempFilePath = null;
 
+      // Insérer le nouveau dossier lié à l'ancien
+      const { rows: newDossierRows } = await client.query(
+        `INSERT INTO dossier (
+           nom, n_compte, n_be, n_soa, n_ord, exo_budgetaire,
+           commentaire, fichier_original, statut,
+           id_dispatch, id_verificateur, dossier_lie_id,
+           version, comparaison_active,
+           assigned_verification_at,
+           deadline_verif_elapsed_sec, deadline_verif_paused_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EN_VERIFICATION',
+           $9, $10, $11, $12, TRUE,
+           CURRENT_TIMESTAMP, 0, NULL)
+         RETURNING *`,
+        [
+          versionedName,
+          dossier.n_compte,
+          dossier.n_be,
+          dossier.n_soa,
+          dossier.n_ord,
+          dossier.exo_budgetaire,
+          `Nouvelle version (version 2) — comparaison ancien/nouveau`,
+          finalFileName,
+          req.user.id,
+          dossier.id_verificateur,
+          dossier.id, // lien vers l'ancien dossier
+          newVersion,
+        ],
+      );
+
+      const newDossier = newDossierRows[0];
+
+      // Version initiale du nouveau dossier
       await client.query(
-        `UPDATE dossier SET
-           nom = $1, fichier_original = $2, version = $3,
-           statut = 'EN_VERIFICATION', comparaison_active = TRUE,
-           validation = FALSE, rejet = FALSE,
-           assigned_verification_at = CURRENT_TIMESTAMP,
-           deadline_verif_elapsed_sec = 0,
-           deadline_verif_paused_at = NULL,
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id = $4`,
-        [versionedName, finalFileName, newVersion, dossier.id],
+        `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
+         VALUES ($1, 1, $2, FALSE)
+         ON CONFLICT (id_dossier, version) DO NOTHING`,
+        [newDossier.id, dossier.fichier_original],
       );
 
       await client.query(
         `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
          VALUES ($1, $2, $3, TRUE)
          ON CONFLICT (id_dossier, version) DO UPDATE SET fichier_original = EXCLUDED.fichier_original, est_actuelle = TRUE`,
-        [dossier.id, newVersion, finalFileName],
+        [newDossier.id, newVersion, finalFileName],
       );
 
+      // Historique traitement du nouveau dossier
       await client.query(
         `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
          VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
         [
           req.user.id,
-          dossier.id,
-          `Nouvelle version confirmée (version ${newVersion}) — comparaison activée`,
+          newDossier.id,
+          `Nouveau dossier créé depuis « ${dossier.nom} » — comparaison activée`,
         ],
+      );
+
+      // Lien depuis l'ancien vers le nouveau (dossier_lie_id)
+      // On ne modifie PAS le statut de l'ancien dossier
+      await client.query(
+        `UPDATE dossier SET dossier_lie_id = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [newDossier.id, dossier.id],
       );
 
       await client.query("COMMIT");
 
-      if (dossier.id_verificateur) {
+      // Notification au vérificateur du nouveau dossier
+      if (newDossier.id_verificateur) {
         await createNotification({
-          id_user: dossier.id_verificateur,
-          id_dossier: dossier.id,
-          message: `Nouvelle version du dossier « ${versionedName} » à vérifier (comparaison ancien/nouveau)`,
+          id_user: newDossier.id_verificateur,
+          id_dossier: newDossier.id,
+          message: `Nouveau dossier « ${versionedName} » à vérifier (comparaison avec « ${dossier.nom} »)`,
           type: "VERIFICATION",
         });
       }
 
-      res.json(await getDossierOr404(dossier.id));
+      // Notification au dispatch
+      await createNotification({
+        id_user: req.user.id,
+        id_dossier: newDossier.id,
+        message: `Nouveau dossier « ${versionedName} » créé — ancien dossier « ${dossier.nom} » conservé`,
+        type: "DOSSIER",
+      });
+
+      // Retourner les deux dossiers liés
+      const enrichedNew = await getDossierOr404(newDossier.id);
+      const enrichedOld = await getDossierOr404(dossier.id);
+      res.json({
+        new_dossier: enrichedNew,
+        old_dossier: enrichedOld,
+      });
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;
@@ -2206,6 +2279,78 @@ function formatHumanDate(value) {
   }).format(date);
 }
 
+/**
+ * Supprimer l'ancien dossier lié (réservé au Validateur).
+ * Le validateur supprime l'ancien dossier après avoir validé le nouveau.
+ */
+async function deleteOldLinked(req, res) {
+  try {
+    if (!["Validateur", "Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Action réservée au validateur" });
+    }
+
+    const dossier = await getDossierOr404(req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    if (!dossier.dossier_lie_id_ref) {
+      return res.status(400).json({ error: "Ce dossier n'a pas de dossier lié." });
+    }
+
+    const oldDossierId = dossier.dossier_lie_id_ref;
+    const oldDossier = await getDossierOr404(oldDossierId);
+    if (!oldDossier) {
+      return res.status(404).json({ error: "L'ancien dossier est introuvable." });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Supprimer les traitements de l'ancien dossier
+      await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [oldDossierId]);
+
+      // Supprimer les notifications liées
+      await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [oldDossierId]);
+
+      // Supprimer les versions
+      await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [oldDossierId]);
+
+      // Supprimer le dossier lui-même
+      await client.query(`DELETE FROM dossier WHERE id = $1`, [oldDossierId]);
+
+      // Retirer le lien du nouveau dossier
+      await client.query(
+        `UPDATE dossier SET dossier_lie_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [dossier.id],
+      );
+
+      await client.query("COMMIT");
+
+      await audit({
+        id_user: req.user.id,
+        action: "DELETE_OLD_LINKED_DOSSIER",
+        table_name: "dossier",
+        record_id: oldDossierId,
+        details: { ancien_nom: oldDossier.nom, nouveau_dossier_id: dossier.id },
+        ip_address: req.ip,
+      });
+
+      res.json({
+        message: `Ancien dossier « ${oldDossier.nom} » supprimé.`,
+        deleted_id: oldDossierId,
+      });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur suppression ancien dossier" });
+  }
+}
+
 module.exports = {
   list,
   getOne,
@@ -2225,4 +2370,5 @@ module.exports = {
   archiveDossier,
   previewFile,
   previewVersion,
+  deleteOldLinked,
 };

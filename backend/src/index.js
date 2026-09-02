@@ -10,6 +10,7 @@ const userRoutes = require("./routes/users");
 const dossierRoutes = require("./routes/dossiers");
 const notificationRoutes = require("./routes/notifications");
 const archiveRoutes = require("./routes/archives");
+const joursFeriesRoutes = require("./routes/joursFeries");
 
 const app = express();
 
@@ -146,6 +147,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/dossiers", dossierRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/archives", archiveRoutes);
+app.use("/api/jours-feries", joursFeriesRoutes);
 
 /*
  * ============================================================

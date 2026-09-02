@@ -12,13 +12,24 @@
           <p class="page-sub">Gestion des comptes utilisateurs</p>
         </div>
 
-        <q-btn
-          color="primary"
-          icon="person_add"
-          label="Créer un utilisateur"
-          unelevated
-          @click="openCreateDialog"
-        />
+        <div class="row q-gutter-sm">
+          <q-btn
+            v-if="isAdmin"
+            outline
+            color="warning"
+            icon="event_busy"
+          label="Jours fériés"
+            unelevated
+            @click="openJourFerierDialog"
+          />
+          <q-btn
+            color="primary"
+            icon="person_add"
+            label="Créer un utilisateur"
+            unelevated
+            @click="openCreateDialog"
+          />
+        </div>
       </div>
 
       <!-- =========================
@@ -535,6 +546,103 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- ======================================================
+         DIALOG JOURS FÉRIÉS
+    ======================================================= -->
+    <q-dialog v-model="jourFerierDialog" persistent maximized>
+      <q-card style="max-width: 700px; width: 100%">
+        <q-card-section>
+          <div class="row items-center justify-between">
+            <div>
+              <div class="text-h6 text-weight-bold">Jours fériés</div>
+              <div class="text-caption text-grey-7">
+                Gestion des jours fériés — le timer ne fonctionne pas ces jours-là
+              </div>
+            </div>
+            <q-btn flat round dense icon="close" @click="jourFerierDialog = false" />
+          </div>
+        </q-card-section>
+
+        <q-separator />
+
+        <!-- Formulaire d'ajout -->
+        <q-card-section>
+          <div class="row q-col-gutter-md items-end">
+            <div class="col-12 col-sm-5">
+              <q-input
+                v-model="jfForm.date_ferie"
+                type="date"
+                label="Date *"
+                outlined
+                dense
+              />
+            </div>
+            <div class="col-12 col-sm-5">
+              <q-input
+                v-model="jfForm.libelle"
+                label="Libellé *"
+                outlined
+                dense
+                placeholder="ex: Fête nationale"
+                @keyup.enter="addJourFerier"
+              />
+            </div>
+            <div class="col-12 col-sm-2">
+              <q-btn
+                color="primary"
+                icon="add"
+                label="Ajouter"
+                class="full-width"
+                unelevated
+                :loading="jfLoading"
+                :disable="!jfForm.date_ferie || !jfForm.libelle.trim()"
+                @click="addJourFerier"
+              />
+            </div>
+          </div>
+        </q-card-section>
+
+        <q-separator />
+
+        <!-- Liste -->
+        <q-card-section class="q-pb-none">
+          <div v-if="jourFeries.length === 0" class="text-center text-grey-6 q-pa-lg">
+            Aucun jour férié enregistré
+          </div>
+          <q-list v-else bordered separator>
+            <q-item v-for="jf in jourFeries" :key="jf.id">
+              <q-item-section avatar>
+                <q-icon name="event_busy" color="warning" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ jf.libelle }}</q-item-label>
+                <q-item-label caption>
+                  {{ formatDateOnly(jf.date_ferie) }}
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  icon="delete"
+                  color="negative"
+                  :loading="jfLoading"
+                  @click="removeJourFerier(jf)"
+                >
+                  <q-tooltip>Supprimer</q-tooltip>
+                </q-btn>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+
+        <q-card-actions align="right" class="q-pa-md">
+          <q-btn flat label="Fermer" color="primary" @click="jourFerierDialog = false" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -557,6 +665,12 @@ const congeDialog = ref(false);
 const congeUser = ref(null);
 const congeLoading = ref(false);
 const congeForm = reactive({ debut: "", fin: "" });
+
+/** Jours fériés */
+const jourFerierDialog = ref(false);
+const jourFeries = ref([]);
+const jfLoading = ref(false);
+const jfForm = reactive({ date_ferie: "", libelle: "" });
 
 let presenceInterval = null;
 
@@ -759,6 +873,78 @@ async function clearConge() {
   } finally {
     congeLoading.value = false;
   }
+}
+
+/*
+ * ============================================================
+ * JOURS FÉRIÉS
+ * ============================================================
+ */
+
+function openJourFerierDialog() {
+  jfForm.date_ferie = "";
+  jfForm.libelle = "";
+  jourFerierDialog.value = true;
+  loadJourFeries();
+}
+
+async function loadJourFeries() {
+  try {
+    const { data } = await api.get("/jours-feries");
+    jourFeries.value = data;
+  } catch {
+    jourFeries.value = [];
+  }
+}
+
+async function addJourFerier() {
+  if (!jfForm.date_ferie || !jfForm.libelle.trim()) {
+    $q.notify({ type: "negative", message: "Date et libellé requis." });
+    return;
+  }
+  jfLoading.value = true;
+  try {
+    await api.post("/jours-feries", {
+      date_ferie: jfForm.date_ferie,
+      libelle: jfForm.libelle.trim(),
+    });
+    $q.notify({ type: "positive", message: "Jour férié ajouté." });
+    jfForm.date_ferie = "";
+    jfForm.libelle = "";
+    await loadJourFeries();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur ajout jour férié.",
+    });
+  } finally {
+    jfLoading.value = false;
+  }
+}
+
+async function removeJourFerier(jf) {
+  Dialog.create({
+    title: "Supprimer le jour férié",
+    message: `Voulez-vous supprimer « ${jf.libelle} » (${formatDateOnly(jf.date_ferie)}) ?`,
+    html: true,
+    cancel: { label: "Annuler", flat: true },
+    ok: { label: "Supprimer", color: "negative" },
+    persistent: true,
+  }).onOk(async () => {
+    jfLoading.value = true;
+    try {
+      await api.delete(`/jours-feries/${jf.id}`);
+      $q.notify({ type: "positive", message: "Jour férié supprimé." });
+      await loadJourFeries();
+    } catch (e) {
+      $q.notify({
+        type: "negative",
+        message: e.response?.data?.error || "Erreur suppression.",
+      });
+    } finally {
+      jfLoading.value = false;
+    }
+  });
 }
 
 async function changeUserStatus(user) {

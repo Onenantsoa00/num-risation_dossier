@@ -16,7 +16,7 @@ async function findRetourDispatchDuplicate(fields) {
   const { rows } = await db.query(
     `SELECT d.*
      FROM dossier d
-     WHERE d.statut = 'RETOUR_DISPATCH'
+     WHERE d.statut IN ('RETOUR_DISPATCH', 'EN_ATTENTE_VERIFICATEUR', 'EN_VERIFICATION', 'EN_VALIDATION')
        AND COALESCE(d.n_compte, '') = $1
        AND COALESCE(d.n_be, '') = $2
        AND COALESCE(d.n_soa, '') = $3

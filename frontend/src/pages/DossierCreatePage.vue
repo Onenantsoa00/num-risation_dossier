@@ -131,17 +131,23 @@
       </section>
     </div>
 
-    <!-- Modale doublon RETOUR_DISPATCH -->
+    <!-- Modale doublon -->
     <q-dialog v-model="duplicateDialog" persistent>
       <q-card style="width: 520px; max-width: 95vw">
         <q-card-section>
           <div class="text-h6">Dossier déjà existant</div>
           <p class="q-mt-sm text-body2">
-            Un dossier avec les mêmes informations existe déjà et est en statut
-            <strong>Retour Dispatch</strong>. Voulez-vous valider ce fichier comme
-            nouvelle version ?
+            Un dossier avec les mêmes informations existe déjà
+            <template v-if="duplicateStatut === 'RETOUR_DISPATCH'">
+              et est en statut <strong>Retour Dispatch</strong>.
+              Voulez-vous valider ce fichier comme nouvelle version ?
+            </template>
+            <template v-else>
+              (statut : <strong>{{ duplicateStatut }}</strong>).
+              Ce dossier est déjà en cours de traitement.
+            </template>
           </p>
-          <p class="text-caption text-grey-7 q-mt-sm">
+          <p v-if="duplicateStatut === 'RETOUR_DISPATCH'" class="text-caption text-grey-7 q-mt-sm">
             Le dossier sera renvoyé en vérification au vérificateur précédemment
             assigné, avec comparaison ancien/nouveau fichier.
           </p>
@@ -149,6 +155,7 @@
         <q-card-actions align="right">
           <q-btn flat label="Annuler" v-close-popup />
           <q-btn
+            v-if="duplicateStatut === 'RETOUR_DISPATCH'"
             color="primary"
             label="Valider ce fichier"
             unelevated
@@ -176,6 +183,7 @@ const error = ref("");
 const fichier = ref(null);
 const duplicateDialog = ref(false);
 const duplicateDossierId = ref(null);
+const duplicateStatut = ref("");
 
 const nCompte = ref("");
 const nBe = ref("");
@@ -225,8 +233,13 @@ async function submit() {
     $q.notify({ type: "positive", message: "Dossier envoyé aux administrateurs." });
     router.push({ name: "dossier-detail", params: { id: data.id } });
   } catch (e) {
-    if (e.response?.status === 409 && e.response?.data?.code === "DUPLICATE_RETOUR_DISPATCH") {
+    if (e.response?.status === 409 && e.response?.data?.code === "DUPLICATE_ACTIVE") {
       duplicateDossierId.value = e.response.data.existing_dossier_id;
+      duplicateStatut.value = e.response.data.existing_dossier?.statut || "";
+      duplicateDialog.value = true;
+    } else if (e.response?.status === 409 && e.response?.data?.code === "DUPLICATE_RETOUR_DISPATCH") {
+      duplicateDossierId.value = e.response.data.existing_dossier_id;
+      duplicateStatut.value = "RETOUR_DISPATCH";
       duplicateDialog.value = true;
     } else {
       error.value = e.response?.data?.error || "Erreur lors de l'import.";
@@ -248,9 +261,10 @@ async function confirmDuplicateReimport() {
     duplicateDialog.value = false;
     $q.notify({
       type: "positive",
-      message: "Nouvelle version validée — dossier en vérification.",
+      message: "Nouveau dossier créé — ancien dossier conservé pour comparaison.",
     });
-    router.push({ name: "dossier-detail", params: { id: data.id } });
+    // Rediriger vers le nouveau dossier (côté gauche = ancien, côté droit = nouveau)
+    router.push({ name: "dossier-detail", params: { id: data.new_dossier.id } });
   } catch (e) {
     error.value = e.response?.data?.error || "Erreur lors de la confirmation.";
     duplicateDialog.value = false;
