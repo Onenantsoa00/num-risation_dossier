@@ -1,4 +1,6 @@
-const TIMEZONE = "Europe/Paris";
+// Heure locale de l'entreprise : Indian/Antananarivo (UTC+3, sans heure d'été).
+// Les horaires de travail 08h-12h / 14h-16h doivent suivre l'horloge des utilisateurs.
+const TIMEZONE = "Indian/Antananarivo";
 export const DEADLINE_WORKING_SECONDS = 16 * 3600;
 
 function getParisParts(date = new Date()) {
@@ -31,7 +33,7 @@ function toParisDate(parts) {
 }
 
 /**
- * Vérifie si le jour est un samedi (6) ou dimanche (0) en Europe/Paris.
+ * Vérifie si le jour est un samedi (6) ou dimanche (0) dans la timezone métier.
  */
 function isWeekend(parts) {
   const date = toParisDate(parts);

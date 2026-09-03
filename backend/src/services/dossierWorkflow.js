@@ -174,7 +174,38 @@ async function hasActiveDossier(userId, role, excludeDossierId = null) {
 }
 
 /**
+ * Vérifie si un utilisateur a AU MOINS UN dossier dans sa file FIFO
+ * (actif OU en attente) pour un rôle donné.
+ *
+ * Un dossier retourné au Dispatch puis revalidé doit rejoindre la FIN de
+ * la file : on ne démarre son timer que si la file est vide.
+ */
+async function hasPendingDossier(userId, role, excludeDossierId = null) {
+  let sql;
+  if (role === "Verificateur") {
+    sql = `SELECT id FROM dossier
+           WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'`;
+  } else if (role === "Validateur") {
+    sql = `SELECT id FROM dossier
+           WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'`;
+  } else {
+    return null;
+  }
+  const params = [userId];
+  if (excludeDossierId) {
+    sql += ` AND id <> $2`;
+    params.push(excludeDossierId);
+  }
+  sql += ` ORDER BY id ASC LIMIT 1`;
+  const { rows } = await db.query(sql, params);
+  return rows[0] || null;
+}
+
+/**
  * Démarre le timer du dossier FIFO suivant (assign_verification_at ou assign_validation_at).
+ * Ordre : updated_at ASC — identique à l'ordre affiché dans la liste du vérificateur /
+ * validateur (assigned_*_at ASC NULLS LAST, updated_at ASC). Un dossier revalidé
+ * (updated_at récent) démarre donc après les dossiers déjà en file.
  */
 async function startNextQueuedTimer(userId, role) {
   let sql;
@@ -184,14 +215,14 @@ async function startNextQueuedTimer(userId, role) {
     sql = `SELECT id FROM dossier
            WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'
              AND assigned_verification_at IS NULL
-           ORDER BY created_at ASC LIMIT 1`;
+           ORDER BY updated_at ASC LIMIT 1`;
     updateCol = 'assigned_verification_at';
     params = [userId];
   } else if (role === "Validateur") {
     sql = `SELECT id FROM dossier
            WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'
              AND assigned_validation_at IS NULL
-           ORDER BY created_at ASC LIMIT 1`;
+           ORDER BY updated_at ASC LIMIT 1`;
     updateCol = 'assigned_validation_at';
     params = [userId];
   } else {
@@ -257,6 +288,7 @@ module.exports = {
   markAdminModified,
   countAssignedDossiers,
   hasActiveDossier,
+  hasPendingDossier,
   startNextQueuedTimer,
   checkFifoOrder,
 };

@@ -3,6 +3,7 @@ import {
   DEADLINE_WORKING_SECONDS,
   getDeadlineRemaining,
   getDeadlineType,
+  isDeadlinePausedNow,
 } from "src/utils/deadline";
 import { api } from "boot/axios";
 
@@ -13,6 +14,9 @@ export function useDeadlineTimer(dossierRef, authStore) {
   const isPaused = ref(false);
   const waiting = ref(false);
   const label = ref("");
+  /** Congé de la personne assignée au dossier (dates calendrier YYYY-MM-DD) */
+  const congeDebut = ref(null);
+  const congeFin = ref(null);
   let tickInterval = null;
   let syncInterval = null;
 
@@ -67,14 +71,14 @@ export function useDeadlineTimer(dossierRef, authStore) {
     await loadJourFeries();
 
     // Congé de la personne assignée au dossier (renvoyé par le serveur)
-    const congeDebut = dossier.deadline_conge_debut || null;
-    const congeFin = dossier.deadline_conge_fin || null;
+    congeDebut.value = dossier.deadline_conge_debut || null;
+    congeFin.value = dossier.deadline_conge_fin || null;
 
     const result = getDeadlineRemaining(
       dossier,
       type,
-      congeDebut,
-      congeFin,
+      congeDebut.value,
+      congeFin.value,
       jourFeries.value,
     );
 
@@ -89,13 +93,30 @@ export function useDeadlineTimer(dossierRef, authStore) {
   /**
    * Tick local : décrémente d'1 seconde toutes les secondes
    * comme une vraie horloge numérique.
+   *
+   * La pause/reprise est recalculée à CHAQUE seconde (calcul léger,
+   * sans appel réseau) : le timer se met donc automatiquement en pause
+   * à 12h00 / 16h00 / week-end / jour férié / congé, et reprend tout
+   * seul à 14h00 / 08h00 le lendemain, à la minute près.
    */
   function tick() {
     if (waiting.value) return;
-    if (isPaused.value) return;
     if (serverRemaining.value == null) return;
     if (localRemaining.value == null) return;
     if (localRemaining.value <= 0) return;
+
+    const pausedNow = isDeadlinePausedNow(
+      congeDebut.value,
+      congeFin.value,
+      jourFeries.value,
+    );
+
+    // Bascule pause <-> reprise dès que la plage horaire change
+    if (pausedNow !== isPaused.value) {
+      isPaused.value = pausedNow;
+      label.value = formatLabel(localRemaining.value, isPaused.value);
+    }
+    if (pausedNow) return;
 
     // Décrémenter d'1 seconde
     localRemaining.value = Math.max(0, localRemaining.value - 1);

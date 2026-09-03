@@ -25,6 +25,7 @@ const {
   clearVersionHistory,
   markAdminModified,
   hasActiveDossier,
+  hasPendingDossier,
   startNextQueuedTimer,
   checkFifoOrder,
 } = require("../services/dossierWorkflow");
@@ -653,6 +654,12 @@ async function confirmReimport(req, res) {
       });
     }
 
+    // FIFO : le dossier réimporté rejoint la FIN de la file du vérificateur.
+    // Son timer ne démarre que si la file est vide (aucun dossier actif ni en attente).
+    const timerIsActive = dossier.id_verificateur
+      ? !(await hasPendingDossier(dossier.id_verificateur, "Verificateur"))
+      : false;
+
     const client = await db.connect();
     try {
       await client.query("BEGIN");
@@ -692,7 +699,7 @@ async function confirmReimport(req, res) {
            deadline_verif_elapsed_sec, deadline_verif_paused_at
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EN_VERIFICATION',
            $9, $10, $11, $12, $13, TRUE,
-           CURRENT_TIMESTAMP, 0, NULL)
+           ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'}, 0, NULL)
          RETURNING *`,
         [
           versionedName,
@@ -1350,6 +1357,11 @@ async function adminAction(req, res) {
         });
       }
 
+      // FIFO : le dossier rejoint la FIN de la file du vérificateur.
+      const timerIsActive = verifId
+        ? !(await hasPendingDossier(verifId, "Verificateur"))
+        : false;
+
       await db.query(
         `
           UPDATE dossier
@@ -1357,6 +1369,12 @@ async function adminAction(req, res) {
             commentaire = $1,
             statut = 'EN_VERIFICATION',
             id_verificateur = COALESCE($2, id_verificateur),
+            assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+            assigned_validation_at = NULL,
+            deadline_verif_elapsed_sec = 0,
+            deadline_verif_paused_at = NULL,
+            deadline_valid_elapsed_sec = 0,
+            deadline_valid_paused_at = NULL,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $3
         `,
@@ -1456,6 +1474,40 @@ async function returnToDispatch(req, res) {
       throw e;
     } finally {
       client.release();
+    }
+
+    // FIFO : si le dossier retourné était le dossier ACTIF (timer en cours),
+    // démarrer le timer du dossier suivant dans la file du même rôle.
+    if (
+      dossier.statut === "EN_VERIFICATION" &&
+      dossier.assigned_verification_at &&
+      dossier.id_verificateur
+    ) {
+      const nextId = await startNextQueuedTimer(
+        dossier.id_verificateur,
+        "Verificateur",
+      );
+      if (nextId) {
+        const nextDossier = await getDossierOr404(nextId);
+        emitToUser(Number(dossier.id_verificateur), "dossier:update", {
+          dossier: nextDossier,
+        });
+      }
+    } else if (
+      dossier.statut === "EN_VALIDATION" &&
+      dossier.assigned_validation_at &&
+      dossier.id_validateur
+    ) {
+      const nextId = await startNextQueuedTimer(
+        dossier.id_validateur,
+        "Validateur",
+      );
+      if (nextId) {
+        const nextDossier = await getDossierOr404(nextId);
+        emitToUser(Number(dossier.id_validateur), "dossier:update", {
+          dossier: nextDossier,
+        });
+      }
     }
 
     if (dossier.id_dispatch) {
@@ -1611,6 +1663,10 @@ async function reuploadVersion(req, res) {
       });
     }
 
+    // FIFO : le dossier revalidé rejoint la FIN de la file du vérificateur.
+    // Son timer ne démarre que si la file est vide (aucun dossier actif ni en attente).
+    const timerIsActive = !(await hasPendingDossier(verifierId, "Verificateur"));
+
     // ============================================================
     // 9. Calcul de la nouvelle version
     // ============================================================
@@ -1688,6 +1744,13 @@ async function reuploadVersion(req, res) {
         statut = 'EN_VERIFICATION',
         validation = FALSE,
         rejet = FALSE,
+
+        assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+        assigned_validation_at = NULL,
+        deadline_verif_elapsed_sec = 0,
+        deadline_verif_paused_at = NULL,
+        deadline_valid_elapsed_sec = 0,
+        deadline_valid_paused_at = NULL,
 
         updated_at = CURRENT_TIMESTAMP
 
@@ -2417,7 +2480,7 @@ function formatHumanDate(value) {
   }
 
   return new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Europe/Paris",
+    timeZone: "Indian/Antananarivo",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

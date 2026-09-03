@@ -236,7 +236,7 @@ async function listUsers(req, res) {
     sql += " ORDER BY u.nom, u.prenoms";
     const { rows } = await db.query(sql, params);
 
-    // Date « métier » (Europe/Paris) au format YYYY-MM-DD
+    // Date « métier » (Indian/Antananarivo) au format YYYY-MM-DD
     const today = getTodayDateStr();
 
     let result = rows.map((u) => ({

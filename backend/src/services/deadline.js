@@ -1,11 +1,12 @@
 /**
  * Calcul des deadlines en heures ouvrées uniquement.
- * Plages : 08h-12h et 14h-16h (fuseau Europe/Paris).
+ * Plages : 08h-12h et 14h-16h, heure locale de l'entreprise
+ * (fuseau Indian/Antananarivo, UTC+3, sans heure d'été).
  * Jours ouvrés : lundi à vendredi, hors jours fériés.
  * Durée totale : 16 heures ouvrées.
  */
 
-const TIMEZONE = "Europe/Paris";
+const TIMEZONE = "Indian/Antananarivo";
 const DEADLINE_WORKING_SECONDS = 16 * 3600; // 16 heures ouvrées
 
 /** Cache des jours fériés (dates au format YYYY-MM-DD) */
@@ -68,7 +69,7 @@ function toDateStr(value) {
 }
 
 /**
- * Date « aujourd'hui » au format YYYY-MM-DD dans la timezone métier (Europe/Paris).
+ * Date « aujourd'hui » au format YYYY-MM-DD dans la timezone métier (Indian/Antananarivo).
  */
 function getTodayDateStr() {
   return dateStrFromParts(getParisParts(new Date()));
@@ -107,7 +108,7 @@ function toParisDate(parts) {
 }
 
 /**
- * Vérifie si le jour est un samedi (6) ou dimanche (0) en Europe/Paris.
+ * Vérifie si le jour est un samedi (6) ou dimanche (0) dans la timezone métier.
  */
 function isWeekend(parts) {
   const date = toParisDate(parts);
