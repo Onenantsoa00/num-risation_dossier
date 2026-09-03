@@ -139,10 +139,14 @@
             <div class="action-role-title">
               <q-icon name="fact_check" />
               <span>Actions Vérificateur</span>
-              <q-badge v-if="deadlineLabel" :color="deadlineColor" class="q-ml-sm">
-                <q-icon name="timer" size="12px" class="q-mr-xs" />
-                {{ deadlineLabel }}
-              </q-badge>
+              <DossierTimer
+                v-if="deadlineLabel"
+                :remaining-sec="deadlineRemaining"
+                :is-paused="deadlineIsPaused"
+                :waiting="deadlineWaiting"
+                :color="deadlineColor"
+                class="q-ml-sm"
+              />
             </div>
 
             <q-input
@@ -164,88 +168,91 @@
               @click="saveComment"
             />
 
-            <div class="row q-col-gutter-md items-end">
-              <div class="col-12 col-md-8">
-                <q-select
-                  v-model="idValidateur"
-                  :options="validateurs"
-                  label="Envoyer au validateur *"
-                  outlined
-                  dense
-                  emit-value
-                  map-options
-                  popup-content-class="fullscreen-select-popup"
-                >
-                  <!-- OPTION DANS LA LISTE -->
-                  <template #option="scope">
-                    <q-item v-bind="scope.itemProps">
-                      <q-item-section avatar>
-                        <q-avatar
-                          size="42px"
-                          color="primary"
-                          text-color="white"
-                        >
-                          <img
-                            v-if="scope.opt.image"
-                            :src="scope.opt.image"
-                            alt="Photo"
-                            @error="$event.target.style.display = 'none'"
-                          />
+            <!-- Si un validateur est déjà assigné : bouton rapide -->
+            <template v-if="dossier?.id_validateur && existingValidateurLabel">
+              <q-banner class="bg-blue-1 text-blue-10 q-mb-md" rounded>
+                <template #avatar><q-icon name="verified" /></template>
+                <div class="text-weight-medium">{{ existingValidateurLabel }}</div>
+                <div class="text-caption">Validateur déjà assigné</div>
+              </q-banner>
 
-                          <span v-else>
-                            {{ initials(scope.opt) }}
-                          </span>
-                        </q-avatar>
-                      </q-item-section>
+              <div class="row q-col-gutter-md">
+                <div class="col-12 col-md-6">
+                  <q-btn
+                    color="warning"
+                    text-color="white"
+                    label="Envoyer à ce validateur"
+                    icon="send"
+                    class="full-width"
+                    unelevated
+                    :loading="busy"
+                    :disable="!commentaire.trim()"
+                    @click="sendToExistingValidateur"
+                  />
+                </div>
+                <div class="col-12 col-md-6">
+                  <q-btn
+                    flat
+                    color="grey"
+                    label="Changer de validateur"
+                    icon="swap_horiz"
+                    class="full-width"
+                    @click="showChangeValidateur = true"
+                  />
+                </div>
+              </div>
+            </template>
 
-                      <q-item-section>
-                        <q-item-label>
-                          {{ scope.opt.label }}
-                        </q-item-label>
-
-                        <q-item-label caption>
-                          IM : {{ scope.opt.im || "—" }}
-                        </q-item-label>
-                      </q-item-section>
-                    </q-item>
-                  </template>
-
-                  <!-- PERSONNE SÉLECTIONNÉE -->
-                  <template #selected-item="scope">
-                    <q-chip dense class="q-ma-none">
-                      <q-avatar size="28px" color="primary" text-color="white">
-                        <img
-                          v-if="scope.opt.image"
-                          :src="scope.opt.image"
-                          alt="Photo"
-                          @error="$event.target.style.display = 'none'"
-                        />
-
-                        <span v-else>
-                          {{ initials(scope.opt) }}
-                        </span>
+            <!-- Sélecteur de validateur (si aucun assigné ou changement demandé) -->
+            <template v-if="!dossier?.id_validateur || showChangeValidateur">
+              <q-select
+                v-model="idValidateur"
+                :options="validateurs"
+                label="Choisir un validateur *"
+                outlined
+                dense
+                emit-value
+                map-options
+                popup-content-class="fullscreen-select-popup"
+                class="q-mb-sm"
+              >
+                <template #option="scope">
+                  <q-item v-bind="scope.itemProps">
+                    <q-item-section avatar>
+                      <q-avatar size="42px" color="primary" text-color="white">
+                        <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display = 'none'" />
+                        <span v-else>{{ initials(scope.opt) }}</span>
                       </q-avatar>
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>{{ scope.opt.label }}</q-item-label>
+                      <q-item-label caption>IM : {{ scope.opt.im || "—" }}</q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+                <template #selected-item="scope">
+                  <q-chip dense class="q-ma-none">
+                    <q-avatar size="28px" color="primary" text-color="white">
+                      <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display = 'none'" />
+                      <span v-else>{{ initials(scope.opt) }}</span>
+                    </q-avatar>
+                    {{ scope.opt.label }}
+                  </q-chip>
+                </template>
+              </q-select>
 
-                      {{ scope.opt.label }}
-                    </q-chip>
-                  </template>
-                </q-select>
-              </div>
-
-              <div class="col-12 col-md-4">
-                <q-btn
-                  color="warning"
-                  text-color="white"
-                  label="Transmettre"
-                  icon="send"
-                  class="full-width"
-                  unelevated
-                  :loading="busy"
-                  :disable="!commentaire.trim() || !idValidateur"
-                  @click="sendValidateur"
-                />
-              </div>
-            </div>
+              <q-btn
+                color="warning"
+                text-color="white"
+                label="Transmettre"
+                icon="send"
+                class="full-width"
+                unelevated
+                :loading="busy"
+                :disable="!commentaire.trim() || !idValidateur"
+                @click="sendValidateur"
+              />
+            </template>
           </template>
 
           <!-- =========================
@@ -255,10 +262,14 @@
             <div class="action-role-title">
               <q-icon name="verified" />
               <span>Actions Validateur</span>
-              <q-badge v-if="deadlineLabel" :color="deadlineColor" class="q-ml-sm">
-                <q-icon name="timer" size="12px" class="q-mr-xs" />
-                {{ deadlineLabel }}
-              </q-badge>
+              <DossierTimer
+                v-if="deadlineLabel"
+                :remaining-sec="deadlineRemaining"
+                :is-paused="deadlineIsPaused"
+                :waiting="deadlineWaiting"
+                :color="deadlineColor"
+                class="q-ml-sm"
+              />
             </div>
 
             <q-input
@@ -623,14 +634,14 @@
                 {{ statusLabel(dossier.statut) }}
               </q-badge>
 
-              <q-badge
+              <DossierTimer
                 v-if="deadlineLabel"
+                :remaining-sec="deadlineRemaining"
+                :is-paused="deadlineIsPaused"
+                :waiting="deadlineWaiting"
                 :color="deadlineColor"
                 class="q-ml-sm"
-              >
-                <q-icon name="timer" size="14px" class="q-mr-xs" />
-                {{ deadlineLabel }}
-              </q-badge>
+              />
 
               <q-badge
                 v-if="dossier.admin_modifie"
@@ -658,6 +669,19 @@
           <div class="text-caption text-grey-7 q-mb-md">
             Créé le {{ formatDate(dossier.created_at) }}
           </div>
+
+          <!-- =====================================================
+               BANNIÈRE FIFO BLOQUÉ
+          ===================================================== -->
+          <q-banner v-if="isFifoBlocked" class="bg-orange-1 text-orange-10 q-mb-md" rounded>
+            <template #avatar>
+              <q-icon name="lock" size="24px" />
+            </template>
+            <div class="text-weight-bold">File FIFO — Dossier en attente</div>
+            <div class="text-caption q-mt-xs">
+              {{ fifoBlockedError || "Un dossier plus ancien doit être traité en premier. Vous pourrez interagir avec ce dossier une fois le dossier précédent terminé." }}
+            </div>
+          </q-banner>
 
           <!-- =====================================================
                BANNIÈRE DOSSIER LIÉ
@@ -964,72 +988,94 @@
 
             <div class="text-subtitle2 q-mb-sm">Envoyer au validateur</div>
 
-            <q-select
-              v-model="idValidateur"
-              :options="validateurs"
-              label="Validateur"
-              outlined
-              dense
-              emit-value
-              map-options
-              class="q-mb-sm"
-            >
-              <template #option="scope">
-                <q-item v-bind="scope.itemProps">
-                  <q-item-section avatar>
-                    <q-avatar size="40px" color="primary" text-color="white">
-                      <img
-                        v-if="scope.opt.image"
-                        :src="scope.opt.image"
-                        alt="Photo"
-                      />
-                      <span v-else>
-                        {{ initials(scope.opt) }}
-                      </span>
+            <!-- Si un validateur est déjà assigné : afficher un bouton rapide -->
+            <template v-if="dossier?.id_validateur && existingValidateurLabel">
+              <q-banner class="bg-blue-1 text-blue-10 q-mb-sm" rounded dense>
+                <template #avatar>
+                  <q-icon name="verified" />
+                </template>
+                <div class="text-weight-medium">{{ existingValidateurLabel }}</div>
+                <div class="text-caption">Validateur déjà assigné à ce dossier</div>
+              </q-banner>
+
+              <div class="row q-gutter-sm q-mb-md">
+                <q-btn
+                  color="warning"
+                  text-color="white"
+                  label="Envoyer à ce validateur"
+                  icon="send"
+                  class="col"
+                  unelevated
+                  :loading="busy"
+                  :disable="!commentaire.trim()"
+                  @click="sendToExistingValidateur"
+                />
+                <q-btn
+                  flat
+                  color="grey"
+                  label="Changer"
+                  icon="swap_horiz"
+                  class="col-auto"
+                  @click="showChangeValidateur = true"
+                />
+              </div>
+            </template>
+
+            <!-- Sélecteur de validateur (si aucun assigné ou si l'utilisateur veut changer) -->
+            <template v-if="!dossier?.id_validateur || showChangeValidateur">
+              <q-select
+                v-model="idValidateur"
+                :options="validateurs"
+                label="Choisir un validateur"
+                outlined
+                dense
+                emit-value
+                map-options
+                class="q-mb-sm"
+              >
+                <template #option="scope">
+                  <q-item v-bind="scope.itemProps">
+                    <q-item-section avatar>
+                      <q-avatar size="40px" color="primary" text-color="white">
+                        <img
+                          v-if="scope.opt.image"
+                          :src="scope.opt.image"
+                          alt="Photo"
+                        />
+                        <span v-else>{{ initials(scope.opt) }}</span>
+                      </q-avatar>
+                    </q-item-section>
+                    <q-item-section>
+                      <q-item-label>{{ scope.opt.label }}</q-item-label>
+                      <q-item-label caption>
+                        IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
+                        <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
+                      </q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+                <template #selected-item="scope">
+                  <q-chip dense class="q-ma-none">
+                    <q-avatar size="28px">
+                      <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" />
+                      <span v-else>{{ initials(scope.opt) }}</span>
                     </q-avatar>
-                  </q-item-section>
+                    {{ scope.opt.label }}
+                  </q-chip>
+                </template>
+              </q-select>
 
-                  <q-item-section>
-                    <q-item-label>
-                      {{ scope.opt.label }}
-                    </q-item-label>
-
-                    <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
-                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
-                    </q-item-label>
-                  </q-item-section>
-                </q-item>
-              </template>
-
-              <template #selected-item="scope">
-                <q-chip dense class="q-ma-none">
-                  <q-avatar size="28px">
-                    <img
-                      v-if="scope.opt.image"
-                      :src="scope.opt.image"
-                      alt="Photo"
-                    />
-                    <span v-else>
-                      {{ initials(scope.opt) }}
-                    </span>
-                  </q-avatar>
-
-                  {{ scope.opt.label }}
-                </q-chip>
-              </template>
-            </q-select>
-
-            <q-btn
-              color="warning"
-              text-color="white"
-              label="Transmettre"
-              class="full-width q-mb-md"
-              unelevated
-              :loading="busy"
-              :disable="!idValidateur"
-              @click="sendValidateur"
-            />
+              <q-btn
+                color="warning"
+                text-color="white"
+                label="Transmettre"
+                class="full-width q-mb-md"
+                unelevated
+                :loading="busy"
+                :disable="!commentaire.trim() || !idValidateur"
+                @click="sendValidateur"
+              />
+            </template>
           </template>
 
           <!-- =========================
@@ -1146,10 +1192,51 @@
           <!-- =========================
           ADMIN
           ========================= -->
-          <template v-if="auth.role === 'Admin' && !canDecide">
+          <template v-if="(auth.role === 'Admin' || auth.role === 'super_admin') && !canDecide">
             <q-separator class="q-mb-md" />
 
-            <div class="text-subtitle2 q-mb-sm">Admin</div>
+            <div class="text-subtitle2 q-mb-sm">
+              <q-icon name="admin_panel_settings" class="q-mr-xs" />
+              Admin — Actions rapides
+            </div>
+
+            <!-- Sélecteur i_archive pour validation rapide -->
+            <q-select
+              v-model="idArchiveur"
+              :options="archiveurs"
+              label="Responsable archivage (pour valider)"
+              outlined
+              dense
+              emit-value
+              map-options
+              use-input
+              input-debounce="200"
+              class="q-mb-md"
+            >
+              <template #prepend>
+                <q-icon name="inventory_2" />
+              </template>
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section avatar>
+                    <q-avatar size="36px" color="warning" text-color="white">
+                      <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display='none'" />
+                      <span v-else>{{ initials(scope.opt) }}</span>
+                    </q-avatar>
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                    <q-item-label caption>IM : {{ scope.opt.im || '—' }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)</q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+              <template #selected-item="scope">
+                <q-chip dense class="q-ma-none">
+                  <q-avatar size="28px"><img v-if="scope.opt.image" :src="scope.opt.image" @error="$event.target.style.display='none'" /><span v-else>{{ initials(scope.opt) }}</span></q-avatar>
+                  {{ scope.opt.label }}
+                </q-chip>
+              </template>
+            </q-select>
 
             <div class="row q-gutter-sm">
               <q-btn
@@ -1166,7 +1253,8 @@
                 label="Valider"
                 class="col"
                 unelevated
-                :disable="!commentaire.trim()"
+                :loading="busy"
+                :disable="!commentaire.trim() || !idArchiveur"
                 @click="decide('valider')"
               />
 
@@ -1175,6 +1263,7 @@
                 label="Rejeter"
                 class="col"
                 unelevated
+                :loading="busy"
                 :disable="!commentaire.trim()"
                 @click="decide('rejeter')"
               />
@@ -1304,6 +1393,8 @@ import DossierSplitLayout from "components/DossierSplitLayout.vue";
 import DossierFilePreview from "components/DossierFilePreview.vue";
 import DossierComparePreview from "components/DossierComparePreview.vue";
 import { useDeadlineTimer } from "src/composables/useDeadlineTimer";
+import DossierTimer from "components/DossierTimer.vue";
+import { getSocket } from "boot/socket";
 
 const route = useRoute();
 
@@ -1324,8 +1415,9 @@ const dossier = ref(null);
 const loading = ref(true);
 const busy = ref(false);
 const commentaire = ref("");
+const fifoBlockedError = ref("");
 
-const { label: deadlineLabel, color: deadlineColor } = useDeadlineTimer(
+const { remainingSec: deadlineRemaining, isPaused: deadlineIsPaused, waiting: deadlineWaiting, label: deadlineLabel, color: deadlineColor } = useDeadlineTimer(
   dossier,
   auth,
 );
@@ -1430,6 +1522,13 @@ const canComment = computed(() => {
 
 const hideCommentSection = computed(() => {
   return !canComment.value;
+});
+
+/** FIFO : vrai si le verificateur/validateur ne peut pas interagir */
+const isFifoBlocked = computed(() => {
+  if (!dossier.value) return false;
+  if (["Admin", "super_admin"].includes(auth.role)) return false;
+  return !!fifoBlockedError.value || !!dossier.value.deadline_waiting;
 });
 
 function onDocumentFullscreen(value) {
@@ -1549,6 +1648,34 @@ const canSendToValidateur = computed(() => {
     ["EN_VERIFICATION", "RETOUR_DISPATCH"].includes(dossier.value.statut)
   );
 });
+
+const showChangeValidateur = ref(false);
+
+/** Label du validateur déjà assigné */
+const existingValidateurLabel = computed(() => {
+  if (!dossier.value?.id_validateur) return null;
+  const val = validateurs.value.find((v) => v.value === dossier.value.id_validateur);
+  return val ? val.label : null;
+});
+
+/** Envoyer au validateur déjà assigné */
+async function sendToExistingValidateur() {
+  if (!dossier.value?.id_validateur || !commentaire.value.trim()) return;
+  busy.value = true;
+  try {
+    await api.post(`/dossiers/${props.dossierId}/send-validateur`, {
+      id_validateur: dossier.value.id_validateur,
+      commentaire: commentaire.value,
+    });
+    fifoBlockedError.value = "";
+    $q.notify({ type: "positive", message: "Dossier transmis au validateur" });
+    await load();
+  } catch (e) {
+    handleActionError(e);
+  } finally {
+    busy.value = false;
+  }
+}
 
 const canDecide = computed(() => {
   if (!dossier.value) return false;
@@ -1853,11 +1980,17 @@ async function loadPreview() {
 
 async function load() {
   loading.value = true;
+  fifoBlockedError.value = "";
   try {
     const { data } = await api.get(`/dossiers/${props.dossierId}`);
     dossier.value = data;
     dossierLie.value = data.dossier_lie || null;
     commentaire.value = data.commentaire || "";
+
+    // FIFO : vérifier si le dossier est bloqué
+    fifoBlockedError.value = data.deadline_waiting
+      ? `Ce dossier est en attente dans la file FIFO. Un dossier plus ancien doit être traité en premier.`
+      : "";
     if (data.id_validateur) {
       idValidateur.value = data.id_validateur;
     }
@@ -1913,8 +2046,24 @@ async function loadValidateurs() {
 
 function initials(user) {
   if (!user) return "?";
-
   return `${user.prenoms?.[0] || ""}${user.nom?.[0] || ""}`.toUpperCase();
+}
+
+/** Gérer les erreurs FIFO dans les actions */
+function handleActionError(e) {
+  if (e.response?.data?.code === "FIFO_BLOCKED") {
+    fifoBlockedError.value = e.response.data.error;
+    $q.notify({
+      type: "warning",
+      message: e.response.data.error,
+      timeout: 8000,
+    });
+  } else {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur",
+    });
+  }
 }
 
 async function saveComment() {
@@ -1923,13 +2072,11 @@ async function saveComment() {
     await api.post(`/dossiers/${props.dossierId}/comment`, {
       commentaire: commentaire.value,
     });
+    fifoBlockedError.value = "";
     $q.notify({ type: "positive", message: "Commentaire enregistré" });
     await load();
   } catch (e) {
-    $q.notify({
-      type: "negative",
-      message: e.response?.data?.error || "Erreur",
-    });
+    handleActionError(e);
   } finally {
     busy.value = false;
   }
@@ -1942,13 +2089,11 @@ async function sendValidateur() {
       id_validateur: idValidateur.value,
       commentaire: commentaire.value,
     });
+    fifoBlockedError.value = "";
     $q.notify({ type: "positive", message: "Transmis au validateur" });
     await load();
   } catch (e) {
-    $q.notify({
-      type: "negative",
-      message: e.response?.data?.error || "Erreur",
-    });
+    handleActionError(e);
   } finally {
     busy.value = false;
   }
@@ -2011,21 +2156,13 @@ async function decide(action, ecraser = false) {
       type: "negative",
       message: "Veuillez sélectionner le responsable d'archivage.",
     });
-
     return;
   }
-
   if (!commentaire.value.trim()) {
-    $q.notify({
-      type: "negative",
-      message: "Un commentaire est requis.",
-    });
-
+    $q.notify({ type: "negative", message: "Un commentaire est requis." });
     return;
   }
-
   busy.value = true;
-
   try {
     await api.post(`/dossiers/${props.dossierId}/decide`, {
       action,
@@ -2033,24 +2170,17 @@ async function decide(action, ecraser = false) {
       id_archiveur: action === "valider" ? idArchiveur.value : null,
       ecraser,
     });
-
+    fifoBlockedError.value = "";
     $q.notify({
       type: action === "valider" ? "positive" : "warning",
-
-      message:
-        action === "valider"
-          ? "Dossier validé et transmis à l'archivage."
-          : "Dossier rejeté.",
+      message: action === "valider"
+        ? "Dossier validé et transmis à l'archivage."
+        : "Dossier rejeté.",
     });
-
     idArchiveur.value = null;
-
     await load();
   } catch (e) {
-    $q.notify({
-      type: "negative",
-      message: e.response?.data?.error || "Erreur lors de la décision.",
-    });
+    handleActionError(e);
   } finally {
     busy.value = false;
   }
@@ -2063,13 +2193,11 @@ async function retourDispatch(ecraser = false) {
       commentaire: commentaire.value,
       ecraser,
     });
+    fifoBlockedError.value = "";
     $q.notify({ type: "info", message: "Retour Dispatch" });
     await load();
   } catch (e) {
-    $q.notify({
-      type: "negative",
-      message: e.response?.data?.error || "Erreur",
-    });
+    handleActionError(e);
   } finally {
     busy.value = false;
   }
@@ -2082,13 +2210,11 @@ async function adminAction(action) {
       action,
       commentaire: commentaire.value,
     });
+    fifoBlockedError.value = "";
     $q.notify({ type: "positive", message: "Action effectuée" });
     await load();
   } catch (e) {
-    $q.notify({
-      type: "negative",
-      message: e.response?.data?.error || "Erreur",
-    });
+    handleActionError(e);
   } finally {
     busy.value = false;
   }
@@ -2218,9 +2344,24 @@ onMounted(async () => {
     loadVerificateurs(),
     loadArchiveurs(),
   ]);
+
+  // WebSocket : recharger le dossier en temps réel
+  const socket = getSocket();
+  if (socket) {
+    socket.on("dossier:update", (data) => {
+      if (data.dossier?.id === Number(props.dossierId)) {
+        load();
+      }
+    });
+  }
 });
 
-onUnmounted(revokePreview);
+onUnmounted(() => {
+  revokePreview();
+  // Nettoyer l'écouteur socket
+  const socket = getSocket();
+  if (socket) socket.off("dossier:update");
+});
 
 defineExpose({ reload: load });
 </script>

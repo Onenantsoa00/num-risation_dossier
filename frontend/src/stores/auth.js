@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "boot/axios";
+import { connectSocket, disconnectSocket } from "boot/socket";
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
@@ -16,6 +17,11 @@ export const useAuthStore = defineStore("auth", {
       this.token = localStorage.getItem("token");
       const raw = localStorage.getItem("user");
       this.user = raw ? JSON.parse(raw) : null;
+
+      // Reconnecter le socket si token existant
+      if (this.token) {
+        connectSocket();
+      }
     },
     async login(cin, mdp) {
       const { data } = await api.post("/auth/login", {
@@ -25,11 +31,15 @@ export const useAuthStore = defineStore("auth", {
 
       this.setSession(data.token, data.user);
 
+      // Connecter le WebSocket
+      connectSocket();
+
       return data.user;
     },
     async signup(payload) {
       const { data } = await api.post("/auth/signup", payload);
       this.setSession(data.token, data.user);
+      connectSocket();
       return data.user;
     },
     setSession(token, user) {
@@ -43,6 +53,9 @@ export const useAuthStore = defineStore("auth", {
       localStorage.setItem("user", JSON.stringify(user));
     },
     logout() {
+      // Déconnecter le WebSocket
+      disconnectSocket();
+
       this.token = null;
       this.user = null;
       localStorage.removeItem("token");

@@ -87,7 +87,21 @@
               icon="visibility"
               color="primary"
               :to="{ name: 'dossier-detail', params: { id: props.row.id } }"
-            />
+            >
+              <q-tooltip>Voir le dossier</q-tooltip>
+            </q-btn>
+            <q-btn
+              v-if="['Admin', 'super_admin'].includes(auth.role) && props.row.statut === 'REJETE'"
+              flat
+              dense
+              round
+              icon="delete"
+              color="negative"
+              :loading="deletingId === props.row.id"
+              @click.stop="confirmDelete(props.row)"
+            >
+              <q-tooltip>Supprimer ce dossier rejeté</q-tooltip>
+            </q-btn>
           </q-td>
         </template>
       </q-table>
@@ -97,14 +111,17 @@
 
 <script setup>
 import { onMounted, ref } from "vue";
+import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
 import { statusColor, statusLabel, statutOptions } from "src/utils/status";
 
 const auth = useAuthStore();
+const $q = useQuasar();
 const rows = ref([]);
 const loading = ref(false);
 const filters = ref({ q: "", statut: null });
+const deletingId = ref(null);
 
 const columns = [
   { name: "id", label: "#", field: "id", align: "left", sortable: true },
@@ -151,6 +168,31 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function confirmDelete(row) {
+  $q.dialog({
+    title: "Supprimer le dossier",
+    message: `Voulez-vous supprimer définitivement le dossier « <strong>${row.nom}</strong> » ?<br><br>Cette action est irréversible.`,
+    html: true,
+    cancel: { label: "Annuler", flat: true },
+    ok: { label: "Supprimer", color: "negative" },
+    persistent: true,
+  }).onOk(async () => {
+    deletingId.value = row.id;
+    try {
+      await api.delete(`/dossiers/${row.id}`);
+      $q.notify({ type: "positive", message: "Dossier supprimé." });
+      await load();
+    } catch (e) {
+      $q.notify({
+        type: "negative",
+        message: e.response?.data?.error || "Erreur suppression.",
+      });
+    } finally {
+      deletingId.value = null;
+    }
+  });
 }
 
 onMounted(load);

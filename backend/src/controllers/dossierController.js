@@ -8,6 +8,8 @@ const {
   createNotification,
   notifyMentions,
   audit,
+  emitToUser,
+  emitToAdmins,
 } = require("../services/helpers");
 const {
   getDeadlineRemaining,
@@ -22,6 +24,9 @@ const {
   getPreviousVersion,
   clearVersionHistory,
   markAdminModified,
+  hasActiveDossier,
+  startNextQueuedTimer,
+  checkFifoOrder,
 } = require("../services/dossierWorkflow");
 const { uploadDir } = require("../middleware/upload");
 
@@ -94,34 +99,42 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
     congeFin = rows[0]?.conge_fin;
   }
 
-  const enriched = { ...dossier };    if (
+  const enriched = { ...dossier };
+
+  if (
     dossier.statut === "EN_VERIFICATION" &&
-    dossier.id_verificateur === userId
+    (dossier.id_verificateur === userId || ["Admin", "super_admin"].includes(userRole))
   ) {
-    const { remaining, isPaused } = await getDeadlineRemaining(
+    const { remaining, isPaused, waiting } = await getDeadlineRemaining(
       dossier,
       "verification",
       congeDebut,
       congeFin,
     );
     enriched.deadline_remaining_sec = remaining;
-    enriched.deadline_remaining_label = formatRemaining(remaining, isPaused);
+    enriched.deadline_remaining_label = waiting
+      ? "En attente (file FIFO)"
+      : formatRemaining(remaining, isPaused);
     enriched.deadline_is_paused = isPaused;
+    enriched.deadline_waiting = !!waiting;
   }
 
   if (
     dossier.statut === "EN_VALIDATION" &&
-    dossier.id_validateur === userId
+    (dossier.id_validateur === userId || ["Admin", "super_admin"].includes(userRole))
   ) {
-    const { remaining, isPaused } = await getDeadlineRemaining(
+    const { remaining, isPaused, waiting } = await getDeadlineRemaining(
       dossier,
       "validation",
       congeDebut,
       congeFin,
     );
     enriched.deadline_remaining_sec = remaining;
-    enriched.deadline_remaining_label = formatRemaining(remaining, isPaused);
+    enriched.deadline_remaining_label = waiting
+      ? "En attente (file FIFO)"
+      : formatRemaining(remaining, isPaused);
     enriched.deadline_is_paused = isPaused;
+    enriched.deadline_waiting = !!waiting;
   }
 
   return enriched;
@@ -584,7 +597,11 @@ async function create(req, res) {
       ip_address: req.ip,
     });
 
-    res.status(201).json(await getDossierOr404(dossier.id));
+    // WebSocket : notifier les admins du nouveau dossier
+    const newDossier = await getDossierOr404(dossier.id);
+    emitToAdmins("dossier:new", { dossier: newDossier });
+
+    res.status(201).json(newDossier);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur création du dossier" });
@@ -639,16 +656,17 @@ async function confirmReimport(req, res) {
       tempFilePath = null;
 
       // Insérer le nouveau dossier lié à l'ancien
+      // Garder l'ancien commentaire et tous les acteurs
       const { rows: newDossierRows } = await client.query(
         `INSERT INTO dossier (
            nom, n_compte, n_be, n_soa, n_ord, exo_budgetaire,
            commentaire, fichier_original, statut,
-           id_dispatch, id_verificateur, dossier_lie_id,
+           id_dispatch, id_verificateur, id_validateur, dossier_lie_id,
            version, comparaison_active,
            assigned_verification_at,
            deadline_verif_elapsed_sec, deadline_verif_paused_at
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EN_VERIFICATION',
-           $9, $10, $11, $12, TRUE,
+           $9, $10, $11, $12, $13, TRUE,
            CURRENT_TIMESTAMP, 0, NULL)
          RETURNING *`,
         [
@@ -658,11 +676,12 @@ async function confirmReimport(req, res) {
           dossier.n_soa,
           dossier.n_ord,
           dossier.exo_budgetaire,
-          `Nouvelle version (version 2) — comparaison ancien/nouveau`,
+          dossier.commentaire || null,
           finalFileName,
           req.user.id,
           dossier.id_verificateur,
-          dossier.id, // lien vers l'ancien dossier
+          dossier.id_validateur,
+          dossier.id,
           newVersion,
         ],
       );
@@ -684,14 +703,14 @@ async function confirmReimport(req, res) {
         [newDossier.id, newVersion, finalFileName],
       );
 
-      // Historique traitement du nouveau dossier
+      // Historique traitement du nouveau dossier — garder l'ancien commentaire
       await client.query(
         `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
          VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
         [
           req.user.id,
           newDossier.id,
-          `Nouveau dossier créé depuis « ${dossier.nom} » — comparaison activée`,
+          dossier.commentaire || `Réimport du dossier « ${dossier.nom} »`,
         ],
       );
 
@@ -782,11 +801,15 @@ async function assignVerificateur(req, res) {
       return res.status(400).json({ error: "Utilisateur vérificateur invalide" });
     }
 
+    // FIFO : vérifier si le vérificateur a déjà un dossier actif
+    const activeDossier = await hasActiveDossier(id_verificateur, "Verificateur");
+    const timerIsActive = !activeDossier;
+
     await db.query(
       `UPDATE dossier SET
          id_verificateur = $1,
          statut = 'EN_VERIFICATION',
-         assigned_verification_at = CURRENT_TIMESTAMP,
+         assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
          deadline_verif_elapsed_sec = 0,
          deadline_verif_paused_at = NULL,
          updated_at = CURRENT_TIMESTAMP
@@ -811,7 +834,12 @@ async function assignVerificateur(req, res) {
       type: "VERIFICATION",
     });
 
-    res.json(await getDossierOr404(dossier.id));
+    // WebSocket : notifier le vérificateur et les admins
+    const updatedDossier = await getDossierOr404(dossier.id);
+    emitToUser(Number(id_verificateur), "dossier:update", { dossier: updatedDossier });
+    emitToAdmins("dossier:update", { dossier: updatedDossier });
+
+    res.json(updatedDossier);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur assignation vérificateur" });
@@ -872,6 +900,23 @@ async function comment(req, res) {
         error:
           "Vous n'êtes pas autorisé à commenter ce dossier dans son statut actuel.",
       });
+    }
+
+    // ------------------------------------------------------------
+    // 2b. Vérification FIFO stricte
+    //     Le verificateur/validateur ne peut pas interagir
+    //     tant qu'un dossier plus ancien n'est pas traité.
+    // ------------------------------------------------------------
+    if (["Verificateur", "Validateur"].includes(role) &&
+        ["EN_VERIFICATION", "EN_VALIDATION"].includes(dossier.statut)) {
+      const fifo = await checkFifoOrder(req.user.id, role, dossier.id);
+      if (fifo.isBlocked) {
+        return res.status(403).json({
+          error: `Vous ne pouvez pas interagir avec ce dossier. Le dossier « ${fifo.blockingDossier.nom} » (#${fifo.blockingDossier.id}) doit être traité en premier (ordre FIFO).`,
+          code: "FIFO_BLOCKED",
+          blocking_dossier: fifo.blockingDossier,
+        });
+      }
     }
 
     // ------------------------------------------------------------
@@ -939,9 +984,18 @@ async function comment(req, res) {
     }
 
     // ------------------------------------------------------------
-    // 8. Retourner le dossier mis à jour
+    // 8. WebSocket : notifier les participants du dossier
     // ------------------------------------------------------------
-    res.json(await getDossierOr404(dossier.id));
+    const updated = await getDossierOr404(dossier.id);
+    if (dossier.id_verificateur) emitToUser(dossier.id_verificateur, "dossier:update", { dossier: updated });
+    if (dossier.id_validateur) emitToUser(dossier.id_validateur, "dossier:update", { dossier: updated });
+    if (dossier.id_dispatch) emitToUser(dossier.id_dispatch, "dossier:update", { dossier: updated });
+    emitToAdmins("dossier:update", { dossier: updated });
+
+    // ------------------------------------------------------------
+    // 9. Retourner le dossier mis à jour
+    // ------------------------------------------------------------
+    res.json(updated);
   } catch (err) {
     console.error(err);
 
@@ -976,6 +1030,19 @@ async function sendToValidateur(req, res) {
         .json({ error: "Statut incompatible pour l'envoi en validation" });
     }
 
+    // FIFO stricte : vérifier l'ordre
+    if (!["Admin", "super_admin"].includes(req.user.role) &&
+        dossier.statut === "EN_VERIFICATION") {
+      const fifo = await checkFifoOrder(req.user.id, "Verificateur", dossier.id);
+      if (fifo.isBlocked) {
+        return res.status(403).json({
+          error: `Vous ne pouvez pas envoyer ce dossier au validateur. Le dossier « ${fifo.blockingDossier.nom} » (#${fifo.blockingDossier.id}) doit être traité en premier (ordre FIFO).`,
+          code: "FIFO_BLOCKED",
+          blocking_dossier: fifo.blockingDossier,
+        });
+      }
+    }
+
     const { id_validateur, commentaire } = req.body;
     if (!id_validateur)
       return res.status(400).json({ error: "Un validateur doit être désigné" });
@@ -995,12 +1062,16 @@ async function sendToValidateur(req, res) {
       });
     }
 
+    // FIFO : vérifier si le validateur a déjà un dossier actif
+    const activeValDossier = await hasActiveDossier(id_validateur, "Validateur");
+    const valTimerIsActive = !activeValDossier;
+
     await db.query(
       `UPDATE dossier SET
          id_validateur = $1,
          commentaire = COALESCE($2, commentaire),
          statut = 'EN_VALIDATION',
-         assigned_validation_at = CURRENT_TIMESTAMP,
+         assigned_validation_at = ${valTimerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
          deadline_valid_elapsed_sec = 0,
          deadline_valid_paused_at = NULL,
          updated_at = CURRENT_TIMESTAMP
@@ -1027,7 +1098,21 @@ async function sendToValidateur(req, res) {
 
     await notifyMentions(commentaire, dossier.id, req.user);
 
-    res.json(await getDossierOr404(dossier.id));
+    // FIFO : démarrer le timer du dossier suivant en file d'attente
+    if (dossier.id_verificateur) {
+      const nextId = await startNextQueuedTimer(dossier.id_verificateur, "Verificateur");
+      if (nextId) {
+        const nextDossier = await getDossierOr404(nextId);
+        emitToUser(Number(dossier.id_verificateur), "dossier:update", { dossier: nextDossier });
+      }
+    }
+
+    // WebSocket : notifier le validateur
+    const updatedDossier = await getDossierOr404(dossier.id);
+    emitToUser(Number(id_validateur), "dossier:update", { dossier: updatedDossier });
+    emitToAdmins("dossier:update", { dossier: updatedDossier });
+
+    res.json(updatedDossier);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur envoi au validateur" });
@@ -1049,6 +1134,18 @@ async function decide(req, res) {
       return res
         .status(403)
         .json({ error: "Ce dossier ne vous est pas assigné" });
+    }
+
+    // FIFO stricte : vérifier l'ordre pour le validateur
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      const fifo = await checkFifoOrder(req.user.id, "Validateur", dossier.id);
+      if (fifo.isBlocked) {
+        return res.status(403).json({
+          error: `Vous ne pouvez pas traiter ce dossier. Le dossier « ${fifo.blockingDossier.nom} » (#${fifo.blockingDossier.id}) doit être traité en premier (ordre FIFO).`,
+          code: "FIFO_BLOCKED",
+          blocking_dossier: fifo.blockingDossier,
+        });
+      }
     }
 
     const { action, commentaire, id_archiveur, ecraser } = req.body;
@@ -1141,6 +1238,20 @@ async function decide(req, res) {
     } finally {
       client.release();
     }
+
+    // FIFO : démarrer le timer du dossier suivant en file d'attente
+    if (dossier.id_validateur) {
+      const nextValId = await startNextQueuedTimer(dossier.id_validateur, "Validateur");
+      if (nextValId) {
+        const nextValDossier = await getDossierOr404(nextValId);
+        emitToUser(Number(dossier.id_validateur), "dossier:update", { dossier: nextValDossier });
+      }
+    }
+
+    // WebSocket : notifier
+    const decidedDossier = await getDossierOr404(dossier.id);
+    if (dossier.id_dispatch) emitToUser(dossier.id_dispatch, "dossier:update", { dossier: decidedDossier });
+    emitToAdmins("dossier:update", { dossier: decidedDossier });
 
     // Retour au dispatch + notification
     if (dossier.id_dispatch) {
@@ -2351,6 +2462,68 @@ async function deleteOldLinked(req, res) {
   }
 }
 
+async function deleteDossier(req, res) {
+  try {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Réservé à l'Admin ou au super_admin" });
+    }
+
+    const dossier = await getDossierOr404(req.params.id);
+    if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
+
+    // Seuls les dossiers REJETE peuvent être supprimés
+    if (dossier.statut !== "REJETE") {
+      return res.status(400).json({ error: "Seul un dossier rejeté peut être supprimé." });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Supprimer les notifications liées
+      await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [dossier.id]);
+
+      // Supprimer les traitements
+      await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [dossier.id]);
+
+      // Supprimer les versions
+      await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [dossier.id]);
+
+      // Supprimer le fichier physique
+      if (dossier.fichier_original) {
+        const filePath = path.join(uploadDir, dossier.fichier_original);
+        if (fs.existsSync(filePath)) {
+          await fs.promises.unlink(filePath).catch(() => {});
+        }
+      }
+
+      // Supprimer le dossier
+      await client.query(`DELETE FROM dossier WHERE id = $1`, [dossier.id]);
+
+      await client.query("COMMIT");
+
+      await audit({
+        id_user: req.user.id,
+        action: "DELETE_REJETE_DOSSIER",
+        table_name: "dossier",
+        record_id: dossier.id,
+        details: { nom: dossier.nom, statut: dossier.statut },
+        ip_address: req.ip,
+      });
+
+      res.json({ message: `Dossier « ${dossier.nom} » supprimé.` });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur suppression dossier" });
+  }
+}
+
 module.exports = {
   list,
   getOne,
@@ -2371,4 +2544,5 @@ module.exports = {
   previewFile,
   previewVersion,
   deleteOldLinked,
+  deleteDossier,
 };

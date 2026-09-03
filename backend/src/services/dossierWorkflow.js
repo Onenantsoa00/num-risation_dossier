@@ -137,6 +137,107 @@ async function countAssignedDossiers(userId, role) {
   return 0;
 }
 
+/**
+ * Vérifie si un utilisateur a un dossier actif (timer en cours) pour un rôle donné.
+ * FIFO : ne peut pas traiter un dossier tant qu'un dossier plus ancien est actif.
+ */
+async function hasActiveDossier(userId, role, excludeDossierId = null) {
+  let sql;
+  let params;
+  if (role === "Verificateur") {
+    sql = `SELECT id FROM dossier
+           WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'
+             AND assigned_verification_at IS NOT NULL`;
+    params = [userId];
+  } else if (role === "Validateur") {
+    sql = `SELECT id FROM dossier
+           WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'
+             AND assigned_validation_at IS NOT NULL`;
+    params = [userId];
+  } else {
+    return false;
+  }
+  if (excludeDossierId) {
+    sql += ` AND id <> $2`;
+    params.push(excludeDossierId);
+  }
+  sql += ` ORDER BY id ASC LIMIT 1`;
+  const { rows } = await db.query(sql, params);
+  return rows[0] || null;
+}
+
+/**
+ * Démarre le timer du dossier FIFO suivant (assign_verification_at ou assign_validation_at).
+ */
+async function startNextQueuedTimer(userId, role) {
+  let sql;
+  let updateCol;
+  let params;
+  if (role === "Verificateur") {
+    sql = `SELECT id FROM dossier
+           WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'
+             AND assigned_verification_at IS NULL
+           ORDER BY created_at ASC LIMIT 1`;
+    updateCol = 'assigned_verification_at';
+    params = [userId];
+  } else if (role === "Validateur") {
+    sql = `SELECT id FROM dossier
+           WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'
+             AND assigned_validation_at IS NULL
+           ORDER BY created_at ASC LIMIT 1`;
+    updateCol = 'assigned_validation_at';
+    params = [userId];
+  } else {
+    return null;
+  }
+  const { rows } = await db.query(sql, params);
+  if (!rows[0]) return null;
+  const dossierId = rows[0].id;
+  await db.query(
+    `UPDATE dossier SET ${updateCol} = CURRENT_TIMESTAMP,
+       deadline_verif_elapsed_sec = 0, deadline_valid_elapsed_sec = 0,
+       deadline_verif_paused_at = NULL, deadline_valid_paused_at = NULL,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1`,
+    [dossierId],
+  );
+  return dossierId;
+}
+
+/**
+ * Vérifie si un dossier est le PREMIER dans la file FIFO d'un utilisateur.
+ * Retourne { isBlocked: true, blockingDossier } si bloqué, sinon { isBlocked: false }.
+ */
+async function checkFifoOrder(userId, role, dossierId) {
+  let sql;
+  // Seuls les dossiers ACTIFS (timer démarré, assigned_at IS NOT NULL) peuvent bloquer.
+  // Un dossier en attente FIFO (assigned_at IS NULL) ne bloque pas un dossier actif.
+  if (role === "Verificateur") {
+    sql = `SELECT id, nom FROM dossier
+           WHERE id_verificateur = $1
+             AND statut = 'EN_VERIFICATION'
+             AND id <> $2
+             AND assigned_verification_at IS NOT NULL
+           ORDER BY assigned_verification_at ASC, created_at ASC
+           LIMIT 1`;
+  } else if (role === "Validateur") {
+    sql = `SELECT id, nom FROM dossier
+           WHERE id_validateur = $1
+             AND statut = 'EN_VALIDATION'
+             AND id <> $2
+             AND assigned_validation_at IS NOT NULL
+           ORDER BY assigned_validation_at ASC, created_at ASC
+           LIMIT 1`;
+  } else {
+    return { isBlocked: false };
+  }
+  const { rows } = await db.query(sql, [userId, dossierId]);
+  if (rows[0]) {
+    return { isBlocked: true, blockingDossier: rows[0] };
+  }
+  return { isBlocked: false };
+}
+
 module.exports = {
   dossierFieldsKey,
   findRetourDispatchDuplicate,
@@ -148,4 +249,7 @@ module.exports = {
   clearVersionHistory,
   markAdminModified,
   countAssignedDossiers,
+  hasActiveDossier,
+  startNextQueuedTimer,
+  checkFifoOrder,
 };

@@ -262,6 +262,9 @@ import { useAuthStore } from "stores/auth";
 import { useNotificationStore } from "stores/notifications";
 
 import { getImageUrl } from "src/utils/files";
+import { usePresence } from "src/composables/usePresence";
+import { initAudio, setupAudioUnlock } from "src/utils/notificationSound";
+import { getSocket } from "boot/socket";
 
 // ============================================================
 // CONSTANTES
@@ -280,6 +283,7 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const notif = useNotificationStore();
+const { sendOffline } = usePresence();
 
 // ============================================================
 // ETAT
@@ -323,12 +327,16 @@ function toggleDrawer() {
 
 function logout() {
   notif.stopPolling();
-
-  auth.logout();
-
-  router.replace({
-    name: "login",
-  });
+  // Envoyer l'offline IMMÉDIATEMENT via le socket encore actif
+  const socket = getSocket();
+  if (socket) {
+    socket.emit("presence:heartbeat", { status: "offline", dossier_id: null });
+  }
+  // Petit délai pour laisser le message WebSocket partir avant déconnexion
+  setTimeout(() => {
+    auth.logout();
+    router.replace({ name: "login" });
+  }, 200);
 }
 
 // ============================================================
@@ -344,18 +352,14 @@ function imageUrl(image) {
 // ============================================================
 
 onMounted(() => {
-  /*
-   * Sur desktop :
-   * le menu est ouvert par défaut.
-   */
   if ($q.screen.gt.sm) {
     leftDrawer.value = true;
   }
 
-  /*
-   * Démarrer les notifications.
-   */
   notif.startPolling();
+
+  // Configurer le déblocage audio au premier geste utilisateur
+  setupAudioUnlock();
 });
 
 // ============================================================

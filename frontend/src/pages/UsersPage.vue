@@ -652,6 +652,7 @@ import { useQuasar, Dialog } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
 import { getImageUrl } from "src/utils/files";
+import { getSocket } from "boot/socket";
 
 const auth = useAuthStore();
 
@@ -673,6 +674,8 @@ const jfLoading = ref(false);
 const jfForm = reactive({ date_ferie: "", libelle: "" });
 
 let presenceInterval = null;
+let socketListener = false;
+let presencePollInterval = null;
 
 function imageUrl(image) {
   return getImageUrl(image);
@@ -797,17 +800,39 @@ onUnmounted(() => {
   detailDialog.value = false;
   selectedUser.value = null;
   if (presenceInterval) clearInterval(presenceInterval);
+  if (presencePollInterval) clearInterval(presencePollInterval);
+  // Nettoyer l'écouteur socket
+  const socket = getSocket();
+  if (socket) {
+    socket.off("presence:update");
+    if (socket.io) socket.io.off("reconnect");
+  }
+  socketListener = false;
 });
 
 function presenceLabel(user) {
   const p = presenceMap.value[user.id];
   if (p) return p.display_status;
+  // Fallback : vérifier last_activity_at depuis les données utilisateur
+  if (user.last_activity_at) {
+    const lastActivity = new Date(user.last_activity_at).getTime();
+    const diffMs = Date.now() - lastActivity;
+    if (diffMs < 2 * 60 * 1000) return "connecté";
+  }
   return "déconnecté";
 }
 
 function presenceColor(user) {
   const p = presenceMap.value[user.id];
-  if (!p?.is_online) return "grey";
+  if (!p?.is_online) {
+    // Fallback color from last_activity_at
+    if (user.last_activity_at) {
+      const lastActivity = new Date(user.last_activity_at).getTime();
+      const diffMs = Date.now() - lastActivity;
+      if (diffMs < 2 * 60 * 1000) return "positive";
+    }
+    return "grey";
+  }
   if (p.presence_status === "typing") return "warning";
   if (["viewing", "scrolling"].includes(p.presence_status)) return "info";
   return "positive";
@@ -822,8 +847,55 @@ async function loadPresence() {
       map[u.id] = u;
     });
     presenceMap.value = map;
-  } catch {
-    // silencieux
+  } catch (e) {
+    console.warn("[Presence] Erreur chargement présence:", e.message);
+  }
+}
+
+function updatePresenceMap(data) {
+  presenceMap.value = {
+    ...presenceMap.value,
+    [data.id]: {
+      id: data.id,
+      nom: data.nom,
+      prenoms: data.prenoms,
+      role: data.role,
+      is_online: data.is_online,
+      presence_status: data.presence_status,
+      presence_dossier_id: data.presence_dossier_id,
+      display_status: data.is_online
+        ? (data.presence_status === 'typing' ? "en train d'écrire"
+          : ['viewing', 'scrolling'].includes(data.presence_status) ? "consulte un dossier"
+          : 'connecté')
+        : 'déconnecté',
+    },
+  };
+}
+
+function listenPresenceRealtime() {
+  if (socketListener) return;
+  socketListener = true;
+  const socket = getSocket();
+  if (!socket) return;
+
+  // Supprimer les anciens listeners d'abord (éviter les doublons)
+  socket.off("presence:update");
+
+  socket.on("presence:update", (data) => {
+    console.log("[Presence] Update reçu:", data.nom, data.is_online ? "online" : "offline", data.presence_status);
+    updatePresenceMap(data);
+  });
+
+  // Si le socket se reconnecte, ré-enregistrer les listeners
+  if (socket.io) {
+    socket.io.off("reconnect");
+    socket.io.on("reconnect", () => {
+      console.log("[Presence] Socket reconnecté, ré-enregistrement des listeners");
+      socket.off("presence:update");
+      socket.on("presence:update", updatePresenceMap);
+      // Recharger la présence depuis le serveur après reconnexion
+      loadPresence();
+    });
   }
 }
 
@@ -1286,7 +1358,10 @@ onMounted(async () => {
   await Promise.all([loadUsers(), loadRoles()]);
   if (isAdmin.value) {
     await loadPresence();
-    presenceInterval = setInterval(loadPresence, 10000);
+    // Polling fallback plus rapide (5 secondes)
+    presencePollInterval = setInterval(loadPresence, 5000);
+    // Écouter les mises à jour de présence en temps réel via WebSocket
+    listenPresenceRealtime();
   }
 });
 </script>

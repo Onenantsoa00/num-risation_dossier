@@ -13,6 +13,8 @@ const archiveRoutes = require("./routes/archives");
 const joursFeriesRoutes = require("./routes/joursFeries");
 
 const app = express();
+const http = require("http");
+const server = http.createServer(app);
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -206,11 +208,31 @@ app.use((err, _req, res, _next) => {
 
 /*
  * ============================================================
+ * WEBSOCKET (Socket.IO)
+ * ============================================================
+ */
+const { initSocket } = require("./services/socket");
+const io = initSocket(server);
+app.set("io", io);
+
+// Rendre io accessible dans les services
+const { setIO } = require("./services/helpers");
+setIO(io);
+
+/*
+ * ============================================================
+ * DEADLINE MONITOR
+ * ============================================================
+ */
+const { startDeadlineMonitor } = require("./services/deadlineMonitor");
+startDeadlineMonitor();
+
+/*
+ * ============================================================
  * DÉMARRAGE SERVEUR
  * ============================================================
  */
-
-app.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, () => {
   console.log(`API ORDSEC démarrée sur http://${HOST}:${PORT}`);
 
   if (frontendAvailable) {

@@ -49,6 +49,11 @@ router.post(
   authorize("Validateur", "Admin", "super_admin"),
   dossierCtrl.deleteOldLinked,
 );
+router.delete(
+  "/:id",
+  authorize("Admin", "super_admin"),
+  dossierCtrl.deleteDossier,
+);
 router.post(
   "/:id/admin-action",
   authorize("Admin", "super_admin"),

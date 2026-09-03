@@ -199,9 +199,10 @@ async function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
     ? dossier.deadline_verif_paused_at
     : dossier.deadline_valid_paused_at;
 
+  // FIFO : si assigned_at est NULL, le timer n'a pas encore démarré
+  // (dossier en attente derrière un autre dossier actif)
   if (!assignedAt) {
-    const isPaused = isDeadlinePausedNow(congeDebut, congeFin, jourFeries);
-    return { remaining: DEADLINE_WORKING_SECONDS, isPaused };
+    return { remaining: DEADLINE_WORKING_SECONDS, isPaused: true, waiting: true };
   }
 
   const now = new Date();
@@ -231,7 +232,7 @@ async function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
     isDeadlinePausedNow(congeDebut, congeFin, jourFeries) ||
     (pausedAt && !isWorkingMinute(getParisParts(new Date()), jourFeries));
 
-  return { remaining, isPaused };
+  return { remaining, isPaused, waiting: false };
 }
 
 function formatRemaining(seconds, isPaused = false) {
