@@ -87,13 +87,24 @@ async function getDossierOr404(id) {
 async function enrichDossierWithDeadline(dossier, userId, userRole) {
   if (!dossier) return dossier;
 
+  // Le timer appartient au dossier : le congé qui le met en pause est celui
+  // de la personne à qui le dossier est assigné, pas celui de l'admin qui consulte.
+  let congeUserId = userId;
+  if (dossier.statut === "EN_VERIFICATION" && dossier.id_verificateur) {
+    congeUserId = dossier.id_verificateur;
+  } else if (dossier.statut === "EN_VALIDATION" && dossier.id_validateur) {
+    congeUserId = dossier.id_validateur;
+  }
+
   let congeDebut = null;
   let congeFin = null;
 
-  if (userId) {
+  if (congeUserId) {
     const { rows } = await db.query(
-      `SELECT conge_debut, conge_fin FROM utilisateur WHERE id = $1`,
-      [userId],
+      `SELECT to_char(conge_debut, 'YYYY-MM-DD') AS conge_debut,
+              to_char(conge_fin, 'YYYY-MM-DD') AS conge_fin
+       FROM utilisateur WHERE id = $1`,
+      [congeUserId],
     );
     congeDebut = rows[0]?.conge_debut;
     congeFin = rows[0]?.conge_fin;
@@ -117,6 +128,9 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
       : formatRemaining(remaining, isPaused);
     enriched.deadline_is_paused = isPaused;
     enriched.deadline_waiting = !!waiting;
+    // Congé de la personne assignée (dates calendrier) pour le timer côté client
+    enriched.deadline_conge_debut = congeDebut;
+    enriched.deadline_conge_fin = congeFin;
   }
 
   if (
@@ -135,6 +149,9 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
       : formatRemaining(remaining, isPaused);
     enriched.deadline_is_paused = isPaused;
     enriched.deadline_waiting = !!waiting;
+    // Congé de la personne assignée (dates calendrier) pour le timer côté client
+    enriched.deadline_conge_debut = congeDebut;
+    enriched.deadline_conge_fin = congeFin;
   }
 
   return enriched;
@@ -626,6 +643,14 @@ async function confirmReimport(req, res) {
     }
     if (!req.file) {
       return res.status(400).json({ error: "Le fichier est requis" });
+    }
+
+    // Le vérificateur existant reprend le nouveau dossier :
+    // interdit s'il est en congé.
+    if (dossier.id_verificateur && (await isUserOnConge(dossier.id_verificateur))) {
+      return res.status(400).json({
+        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+      });
     }
 
     const client = await db.connect();
@@ -1319,6 +1344,12 @@ async function adminAction(req, res) {
     if (action === "verifier") {
       const verifId = id_verificateur || dossier.id_verificateur;
 
+      if (verifId && (await isUserOnConge(verifId))) {
+        return res.status(400).json({
+          error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+        });
+      }
+
       await db.query(
         `
           UPDATE dossier
@@ -1570,6 +1601,13 @@ async function reuploadVersion(req, res) {
     ) {
       return res.status(400).json({
         error: "Utilisateur vérificateur invalide",
+      });
+    }
+
+    // Interdire l'envoi à un vérificateur en congé
+    if (await isUserOnConge(verifierId)) {
+      return res.status(400).json({
+        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
       });
     }
 

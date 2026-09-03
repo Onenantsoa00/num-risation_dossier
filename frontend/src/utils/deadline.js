@@ -40,12 +40,20 @@ function isWeekend(parts) {
 }
 
 /**
+ * Normalise une valeur de date en 'YYYY-MM-DD' (sans l'heure/fuseau).
+ */
+export function dateOnly(value) {
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
+
+/**
  * Vérifie si la date correspond à un jour férié.
  */
 function isJourFerier(parts, jourFeries) {
   if (!jourFeries || jourFeries.length === 0) return false;
   const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-  return jourFeries.includes(dateStr);
+  return jourFeries.some((j) => dateOnly(j) === dateStr);
 }
 
 export function isWorkingMinute(parts, jourFeries) {
@@ -63,9 +71,11 @@ export function isWorkingMinute(parts, jourFeries) {
 }
 
 function isOnCongeDate(parts, congeDebut, congeFin) {
-  if (!congeDebut || !congeFin) return false;
+  const debut = dateOnly(congeDebut);
+  const fin = dateOnly(congeFin);
+  if (!debut || !fin) return false;
   const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-  return dateStr >= congeDebut && dateStr <= congeFin;
+  return dateStr >= debut && dateStr <= fin;
 }
 
 function advanceOneMinute(parts) {

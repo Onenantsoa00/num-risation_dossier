@@ -1,5 +1,6 @@
 const db = require("../config/db");
 const { createNotification } = require("./helpers");
+const { getTodayDateStr } = require("./deadline");
 
 function dossierFieldsKey(n_compte, n_be, n_soa, n_ord, exo_budgetaire) {
   return [
@@ -51,14 +52,20 @@ async function notifyAllAdmins({ id_dossier, message, type }) {
   }
 }
 
-async function isUserOnConge(userId) {
+/**
+ * Vérifie si l'utilisateur est en congé à la date donnée (aujourd'hui par défaut).
+ * Les dates sont comparées en « date calendrier » YYYY-MM-DD.
+ */
+async function isUserOnConge(userId, dateStr = null) {
   const { rows } = await db.query(
-    `SELECT conge_debut, conge_fin FROM utilisateur WHERE id = $1`,
+    `SELECT to_char(conge_debut, 'YYYY-MM-DD') AS conge_debut,
+            to_char(conge_fin, 'YYYY-MM-DD') AS conge_fin
+     FROM utilisateur WHERE id = $1`,
     [userId],
   );
   const u = rows[0];
   if (!u?.conge_debut || !u?.conge_fin) return false;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = dateStr || getTodayDateStr();
   return today >= u.conge_debut && today <= u.conge_fin;
 }
 

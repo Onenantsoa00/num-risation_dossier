@@ -5,6 +5,7 @@ const { publicUser } = require("./authController");
 const { audit } = require("../services/helpers");
 const { getPresenceList, updatePresence } = require("../services/presence");
 const { countAssignedDossiers, isUserOnConge } = require("../services/dossierWorkflow");
+const { getTodayDateStr } = require("../services/deadline");
 
 async function listRoles(_req, res) {
   try {
@@ -218,8 +219,8 @@ async function listUsers(req, res) {
         u.image,
         u.actif,
         u.id_roles,
-        u.conge_debut,
-        u.conge_fin,
+        to_char(u.conge_debut, 'YYYY-MM-DD') AS conge_debut,
+        to_char(u.conge_fin, 'YYYY-MM-DD') AS conge_fin,
         u.last_activity_at,
         u.presence_status,
         u.presence_dossier_id,
@@ -235,7 +236,8 @@ async function listUsers(req, res) {
     sql += " ORDER BY u.nom, u.prenoms";
     const { rows } = await db.query(sql, params);
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Date « métier » (Europe/Paris) au format YYYY-MM-DD
+    const today = getTodayDateStr();
 
     let result = rows.map((u) => ({
       ...u,

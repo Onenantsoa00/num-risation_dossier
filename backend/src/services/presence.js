@@ -1,6 +1,6 @@
 const db = require("../config/db");
 
-const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes sans activité = déconnecté
+const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes sans heartbeat = déconnecté
 
 async function updatePresence(userId, status, dossierId = null) {
   await db.query(
@@ -12,6 +12,23 @@ async function updatePresence(userId, status, dossierId = null) {
      WHERE id = $3`,
     [status, dossierId, userId],
   );
+}
+
+/**
+ * Traduit un presence_status en libellé affiché dans la colonne « Activité ».
+ */
+function statusToDisplay(status, isOnline) {
+  if (!isOnline) return "déconnecté";
+  switch (status) {
+    case "typing":
+      return "en train d'écrire";
+    case "scrolling":
+      return "en scroll";
+    case "viewing":
+      return "en scroll";
+    default:
+      return "connecté";
+  }
 }
 
 async function getPresenceList() {
@@ -37,25 +54,17 @@ async function getPresenceList() {
     const lastActivity = u.last_activity_at
       ? new Date(u.last_activity_at).getTime()
       : 0;
-    const isOnline = now - lastActivity < OFFLINE_THRESHOLD_MS;
-
-    let displayStatus = "déconnecté";
-    if (isOnline) {
-      if (u.presence_status === "typing") {
-        displayStatus = "en train d'écrire";
-      } else if (u.presence_status === "viewing") {
-        displayStatus = "consulte un dossier";
-      } else if (u.presence_status === "scrolling") {
-        displayStatus = "consulte un dossier";
-      } else {
-        displayStatus = "connecté";
-      }
-    }
+    // Online = statut différent de "offline" ET activité récente.
+    // Un utilisateur déconnecté explicitement (presence_status='offline')
+    // reste "déconnecté" même si last_activity_at est récent.
+    const isOnline =
+      u.presence_status !== "offline" &&
+      now - lastActivity < OFFLINE_THRESHOLD_MS;
 
     return {
       ...u,
       is_online: isOnline,
-      display_status: displayStatus,
+      display_status: statusToDisplay(u.presence_status, isOnline),
     };
   });
 }
@@ -63,5 +72,6 @@ async function getPresenceList() {
 module.exports = {
   updatePresence,
   getPresenceList,
+  statusToDisplay,
   OFFLINE_THRESHOLD_MS,
 };

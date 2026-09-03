@@ -812,29 +812,22 @@ onUnmounted(() => {
 
 function presenceLabel(user) {
   const p = presenceMap.value[user.id];
-  if (p) return p.display_status;
-  // Fallback : vérifier last_activity_at depuis les données utilisateur
-  if (user.last_activity_at) {
-    const lastActivity = new Date(user.last_activity_at).getTime();
-    const diffMs = Date.now() - lastActivity;
-    if (diffMs < 2 * 60 * 1000) return "connecté";
+  // Libellé calculé côté serveur (connecté / en train d'écrire / en scroll / déconnecté)
+  if (p?.display_status) return p.display_status;
+  if (p) {
+    return p.is_online ? "connecté" : "déconnecté";
   }
   return "déconnecté";
 }
 
 function presenceColor(user) {
   const p = presenceMap.value[user.id];
-  if (!p?.is_online) {
-    // Fallback color from last_activity_at
-    if (user.last_activity_at) {
-      const lastActivity = new Date(user.last_activity_at).getTime();
-      const diffMs = Date.now() - lastActivity;
-      if (diffMs < 2 * 60 * 1000) return "positive";
-    }
-    return "grey";
-  }
-  if (p.presence_status === "typing") return "warning";
-  if (["viewing", "scrolling"].includes(p.presence_status)) return "info";
+  const status = p?.presence_status || user.presence_status;
+  const isOnline = p?.is_online ?? false;
+
+  if (!isOnline || status === "offline") return "grey";
+  if (status === "typing") return "warning";
+  if (status === "scrolling" || status === "viewing") return "info";
   return "positive";
 }
 
@@ -853,6 +846,7 @@ async function loadPresence() {
 }
 
 function updatePresenceMap(data) {
+  const online = !!data.is_online && data.presence_status !== "offline";
   presenceMap.value = {
     ...presenceMap.value,
     [data.id]: {
@@ -860,14 +854,16 @@ function updatePresenceMap(data) {
       nom: data.nom,
       prenoms: data.prenoms,
       role: data.role,
-      is_online: data.is_online,
+      is_online: online,
       presence_status: data.presence_status,
       presence_dossier_id: data.presence_dossier_id,
-      display_status: data.is_online
-        ? (data.presence_status === 'typing' ? "en train d'écrire"
-          : ['viewing', 'scrolling'].includes(data.presence_status) ? "consulte un dossier"
-          : 'connecté')
-        : 'déconnecté',
+      display_status: online
+        ? (data.presence_status === "typing"
+            ? "en train d'écrire"
+            : ["scrolling", "viewing"].includes(data.presence_status)
+              ? "en scroll"
+              : "connecté")
+        : "déconnecté",
     },
   };
 }

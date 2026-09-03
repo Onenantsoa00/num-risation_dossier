@@ -1,85 +1,120 @@
-import { onMounted, onUnmounted } from "vue";
+/**
+ * Suivi de présence utilisateur.
+ *
+ * Émet des heartbeat vers le backend (WebSocket si disponible,
+ * sinon repli HTTP POST /users/presence) pour refléter l'activité :
+ *  - "online"    : connecté / inactif → colonne « Activité » = connecté
+ *  - "typing"    : l'utilisateur tape au clavier → « en train d'écrire »
+ *  - "scrolling" : l'utilisateur fait défiler la page → « en scroll »
+ *  - "offline"   : déconnexion (logout, fermeture de l'onglet…)
+ *
+ * Les listeners sont globaux et ne sont enregistrés qu'une seule fois,
+ * même si plusieurs composants appellent usePresence().
+ */
+
 import { useAuthStore } from "stores/auth";
 import { getSocket } from "boot/socket";
+import { api } from "boot/axios";
 
-export function usePresence(dossierIdRef = null) {
-  const auth = useAuthStore();
-  let interval = null;
+const HEARTBEAT_MS = 5000; // heartbeat "online" périodique
+const TYPING_RESET_MS = 3000; // retour à "online" après 3s sans frappe
+const SCROLL_RESET_MS = 4000; // retour à "online" après 4s sans scroll
+const SCROLL_THROTTLE_MS = 2000; // max 1 heartbeat scroll / 2s
 
-  function sendHeartbeat(status = "online") {
-    if (!auth.isAuthenticated) return;
+let started = false;
+let heartbeatInterval = null;
+let typingResetTimer = null;
+let scrollResetTimer = null;
+let lastScrollEmit = 0;
 
-    const socket = getSocket();
-    if (socket?.connected) {
-      socket.emit("presence:heartbeat", {
-        status,
-        dossier_id: dossierIdRef?.value || null,
-      });
-    }
+function isAuthenticated() {
+  return useAuthStore().isAuthenticated;
+}
+
+/**
+ * Envoie un heartbeat (socket si possible, sinon HTTP).
+ */
+function emitStatus(status, dossierId = null) {
+  if (!isAuthenticated()) return;
+
+  const socket = getSocket();
+  if (socket?.connected) {
+    socket.emit("presence:heartbeat", {
+      status,
+      dossier_id: dossierId || null,
+    });
+    return;
   }
 
-  function sendOffline() {
-    const socket = getSocket();
-    if (socket?.connected) {
-      socket.emit("presence:heartbeat", { status: "offline", dossier_id: null });
-    }
+  // Repli HTTP : le WebSocket peut être indisponible
+  // (démarrage du serveur, réseau, CORS…)
+  api
+    .post("/users/presence", {
+      status,
+      dossier_id: dossierId || null,
+    })
+    .catch(() => {});
+}
+
+function sendHeartbeat(status = "online") {
+  emitStatus(status);
+}
+
+/** L'utilisateur tape au clavier → "en train d'écrire" */
+function onKeydown() {
+  emitStatus("typing");
+  clearTimeout(typingResetTimer);
+  typingResetTimer = setTimeout(() => emitStatus("online"), TYPING_RESET_MS);
+}
+
+/** L'utilisateur fait défiler (y compris dans les zones internes) → "en scroll" */
+function onScroll() {
+  const now = Date.now();
+  if (now - lastScrollEmit >= SCROLL_THROTTLE_MS) {
+    lastScrollEmit = now;
+    emitStatus("scrolling");
+  }
+  clearTimeout(scrollResetTimer);
+  scrollResetTimer = setTimeout(() => emitStatus("online"), SCROLL_RESET_MS);
+}
+
+/** Retour visible dans l'onglet → réaffirmer "online" */
+function onVisibilityChange() {
+  if (!document.hidden) {
+    emitStatus("online");
+  }
+}
+
+/** Fermeture / rechargement de la page → "offline" */
+function onPageExit() {
+  if (!isAuthenticated()) return;
+  const socket = getSocket();
+  if (socket?.connected) {
+    socket.emit("presence:heartbeat", { status: "offline", dossier_id: null });
+  }
+  // Repli HTTP best-effort (sendBeacon n'ajoute pas de headers JWT ;
+  // la fermeture du socket déclenche de toute façon la déconnexion douce)
+}
+
+function startGlobalListeners() {
+  window.addEventListener("keydown", onKeydown, { capture: true, passive: true });
+  window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  window.addEventListener("beforeunload", onPageExit);
+  window.addEventListener("pagehide", onPageExit);
+
+  // Heartbeat périodique pour rester "connecté"
+  heartbeatInterval = setInterval(() => emitStatus("online"), HEARTBEAT_MS);
+}
+
+export function usePresence() {
+  if (!started) {
+    started = true;
+    startGlobalListeners();
   }
 
-  function onKeydown() {
-    sendHeartbeat("typing");
-  }
+  // Affirmation immédiate au premier montage (après login/hydrate)
+  emitStatus("online");
 
-  // Throttle scroll : max 1 heartbeat toutes les 2 secondes
-  let lastScrollHeartbeat = 0;
-  function onScroll() {
-    const now = Date.now();
-    if (now - lastScrollHeartbeat > 2000) {
-      lastScrollHeartbeat = now;
-      sendHeartbeat(dossierIdRef?.value ? "scrolling" : "online");
-    }
-  }
-
-  // Retour au "online" après 3 secondes d'inactivité de frappe
-  let typingTimeout = null;
-  function onKeydownWithReset() {
-    sendHeartbeat("typing");
-    clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => {
-      sendHeartbeat("online");
-    }, 3000);
-  }
-
-  function onBeforeUnload() {
-    sendOffline();
-  }
-
-  function onVisibilityChange() {
-    if (document.hidden) {
-      sendHeartbeat("online");
-    } else {
-      sendHeartbeat("online");
-    }
-  }
-
-  onMounted(() => {
-    sendHeartbeat("online");
-    // Heartbeat WebSocket toutes les 5 secondes
-    interval = setInterval(() => sendHeartbeat("online"), 5000);
-    window.addEventListener("keydown", onKeydownWithReset, { passive: true });
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("beforeunload", onBeforeUnload);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-  });
-
-  onUnmounted(() => {
-    clearInterval(interval);
-    clearTimeout(typingTimeout);
-    window.removeEventListener("keydown", onKeydownWithReset);
-    window.removeEventListener("scroll", onScroll);
-    window.removeEventListener("beforeunload", onBeforeUnload);
-    document.removeEventListener("visibilitychange", onVisibilityChange);
-    sendOffline();
-  });
-
-  return { sendHeartbeat, sendOffline };
+  return { sendHeartbeat, sendOffline: () => emitStatus("offline") };
 }

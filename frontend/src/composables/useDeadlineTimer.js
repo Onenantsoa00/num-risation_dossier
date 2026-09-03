@@ -8,7 +8,7 @@ import { api } from "boot/axios";
 
 export function useDeadlineTimer(dossierRef, authStore) {
   const serverRemaining = ref(null);
-  const serverTimestamp = ref(null); // timestamp du dernier fetch serveur
+  const serverTimestamp = ref(null); // timestamp du dernier calcul
   const localRemaining = ref(null);
   const isPaused = ref(false);
   const waiting = ref(false);
@@ -16,21 +16,23 @@ export function useDeadlineTimer(dossierRef, authStore) {
   let tickInterval = null;
   let syncInterval = null;
 
-  /** Jours fériés chargés depuis l'API */
+  /** Jours fériés chargés depuis l'API (dates 'YYYY-MM-DD') */
   const jourFeries = ref([]);
 
   async function loadJourFeries() {
     try {
       const { data } = await api.get("/jours-feries");
-      jourFeries.value = data.map((j) => j.date_ferie);
+      jourFeries.value = data.map((j) => String(j.date_ferie).slice(0, 10));
     } catch {
       jourFeries.value = [];
     }
   }
 
   /**
-   * Synchroniser avec le serveur.
-   * Récupère le temps restant réel et le timestamp du serveur.
+   * Recalcule le timer depuis le dossier (comme le backend) :
+   * les secondes écoulées ne comptent que pendant les heures ouvrées
+   * (08h-12h / 14h-16h, hors week-end et jours fériés) et hors congé
+   * de la personne assignée. C'est ce qui déclenche l'état PAUSE.
    */
   async function syncWithServer() {
     const dossier = unref(dossierRef);
@@ -61,11 +63,18 @@ export function useDeadlineTimer(dossierRef, authStore) {
       return;
     }
 
+    // Recharger les jours fériés (ils peuvent changer en cours de journée)
+    await loadJourFeries();
+
+    // Congé de la personne assignée au dossier (renvoyé par le serveur)
+    const congeDebut = dossier.deadline_conge_debut || null;
+    const congeFin = dossier.deadline_conge_fin || null;
+
     const result = getDeadlineRemaining(
       dossier,
       type,
-      null,
-      null,
+      congeDebut,
+      congeFin,
       jourFeries.value,
     );
 
@@ -112,14 +121,12 @@ export function useDeadlineTimer(dossierRef, authStore) {
   );
 
   onMounted(async () => {
-    await loadJourFeries();
     await syncWithServer();
 
     // Tick local toutes les secondes (horloge en temps réel)
     tickInterval = setInterval(tick, 1000);
 
-    // Resynchroniser avec le serveur toutes les 30 secondes
-    // pour corriger les dérives
+    // Recalcul périodique (pause hors horaires / congé / férié)
     syncInterval = setInterval(syncWithServer, 30000);
   });
 

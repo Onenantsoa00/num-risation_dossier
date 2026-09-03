@@ -7,6 +7,8 @@
  * - Suivi actif des connexions par utilisateur (un user peut avoir plusieurs onglets)
  * - Déconnexion douce : 30s de grâce avant de marquer offline
  *   (pour éviter le flicker quand l'utilisateur recharge la page)
+ * - Les heartbeat des clients (online / typing / scrolling / offline)
+ *   mettent à jour presence_status + last_activity_at
  */
 
 const { Server } = require("socket.io");
@@ -23,6 +25,48 @@ const disconnectTimers = new Map();
 
 const DISCONNECT_GRACE_MS = 30000; // 30 secondes de grâce
 
+const VALID_PRESENCE_STATUSES = ["online", "typing", "viewing", "scrolling", "offline"];
+
+/** Origines autorisées (dev + réseau local), comme le CORS HTTP. */
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+  ) {
+    return true;
+  }
+  // Réseaux privés LAN
+  return (
+    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin) ||
+    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin) ||
+    /^http:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}(?::\d+)?$/.test(origin)
+  );
+}
+
+/**
+ * Marquer l'utilisateur offline (DB + broadcast aux admins).
+ * On ne touche PAS last_activity_at : la date reste la dernière activité connue.
+ */
+async function markOffline(user, userId) {
+  await db.query(
+    `UPDATE utilisateur
+     SET presence_status = 'offline',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1`,
+    [userId],
+  );
+  io.to("admins").emit("presence:update", {
+    id: userId,
+    nom: user.nom,
+    prenoms: user.prenoms,
+    role: user.role,
+    is_online: false,
+    presence_status: "offline",
+    presence_dossier_id: null,
+  });
+  console.log(`[Socket] ${user.prenoms} ${user.nom} marqué offline`);
+}
+
 /**
  * Initialiser le serveur Socket.IO sur le serveur HTTP existant.
  */
@@ -31,10 +75,12 @@ function initSocket(server) {
 
   io = new Server(server, {
     cors: {
-      origin: [
-        "http://localhost:9000",
-        "http://127.0.0.1:9000",
-      ],
+      origin: (origin, callback) => {
+        if (isAllowedOrigin(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error("Origine non autorisée par CORS."));
+      },
       credentials: true,
     },
     pingTimeout: 30000,
@@ -53,13 +99,15 @@ function initSocket(server) {
       }
 
       const decoded = jwt.verify(token, JWT_SECRET);
+      // Le JWT est signé avec { userId } (voir authController.signToken)
+      const userId = decoded.userId ?? decoded.id;
 
       const { rows } = await db.query(
         `SELECT u.id, u.nom, u.prenoms, u.email, u.actif, r.nom AS role
          FROM utilisateur u
          LEFT JOIN roles r ON r.id = u.id_roles
          WHERE u.id = $1`,
-        [decoded.id]
+        [userId]
       );
 
       if (!rows[0] || !rows[0].actif) {
@@ -75,19 +123,20 @@ function initSocket(server) {
 
   // ── Connexion ────────────────────────────────────────────────
   io.on("connection", async (socket) => {
-    const userId = socket.user.id;
+    const user = socket.user;
+    const userId = user.id;
     const socketId = socket.id;
-    console.log(`[Socket] ${socket.user.prenoms} ${socket.user.nom} connecté (id=${userId}, sid=${socketId})`);
+    console.log(`[Socket] ${user.prenoms} ${user.nom} connecté (id=${userId}, sid=${socketId})`);
 
     // Rejoindre le salon personnel
     socket.join(`user:${userId}`);
 
     // Les admins rejoignent le salon admin
-    if (["Admin", "super_admin"].includes(socket.user.role)) {
+    if (["Admin", "super_admin"].includes(user.role)) {
       socket.join("admins");
     }
 
-    // ── Annuler le timer de déconnexion douce si存在 ──
+    // ── Annuler le timer de déconnexion douce si existant ──
     if (disconnectTimers.has(userId)) {
       clearTimeout(disconnectTimers.get(userId));
       disconnectTimers.delete(userId);
@@ -113,9 +162,9 @@ function initSocket(server) {
     // ── Broadcaster la présence en ligne ──
     io.to("admins").emit("presence:update", {
       id: userId,
-      nom: socket.user.nom,
-      prenoms: socket.user.prenoms,
-      role: socket.user.role,
+      nom: user.nom,
+      prenoms: user.prenoms,
+      role: user.role,
       is_online: true,
       presence_status: "online",
       presence_dossier_id: null,
@@ -124,10 +173,9 @@ function initSocket(server) {
     // ── Heartbeat depuis le client ─────────────────────────────
     socket.on("presence:heartbeat", async (data) => {
       const { status = "online", dossier_id = null } = data || {};
-      const validStatuses = ["online", "typing", "viewing", "scrolling", "offline"];
-      const presenceStatus = validStatuses.includes(status) ? status : "online";
+      const presenceStatus = VALID_PRESENCE_STATUSES.includes(status) ? status : "online";
 
-      // Si status = offline, retirer cette connexion de la liste active
+      // ── Déconnexion explicite (logout / fermeture d'onglet) ──
       if (presenceStatus === "offline") {
         const sockets = activeSockets.get(userId);
         if (sockets) {
@@ -136,33 +184,54 @@ function initSocket(server) {
             activeSockets.delete(userId);
           }
         }
+
+        // Une autre connexion (autre onglet / autre appareil) est encore active :
+        // l'utilisateur reste en ligne, on ne marque rien.
+        const stillConnected =
+          activeSockets.has(userId) && activeSockets.get(userId).size > 0;
+        if (stillConnected) {
+          return;
+        }
+
+        // Plus aucune connexion active → déconnexion immédiate
+        // (contrairement à la fermeture brutale qui passe par le délai de grâce)
+        try {
+          await markOffline(user, userId);
+        } catch (err) {
+          console.error("[Socket] Erreur marquage offline:", err.message);
+        }
+        return;
       }
 
-      // Calculer is_online : true si au moins une connexion active
-      const isConnected = activeSockets.has(userId) && activeSockets.get(userId).size > 0;
+      // ── online / typing / viewing / scrolling ──
+      if (!activeSockets.has(userId)) {
+        activeSockets.set(userId, new Set([socketId]));
+      } else {
+        activeSockets.get(userId).add(socketId);
+      }
 
       await db.query(
         `UPDATE utilisateur
          SET presence_status = $1, presence_dossier_id = $2,
              last_activity_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
          WHERE id = $3`,
-        [presenceStatus === "offline" && !isConnected ? "offline" : presenceStatus, dossier_id, userId]
+        [presenceStatus, dossier_id, userId]
       );
 
       io.to("admins").emit("presence:update", {
         id: userId,
-        nom: socket.user.nom,
-        prenoms: socket.user.prenoms,
-        role: socket.user.role,
-        is_online: presenceStatus === "offline" && !isConnected ? false : presenceStatus !== "offline",
-        presence_status: presenceStatus === "offline" && !isConnected ? "offline" : presenceStatus,
-        presence_dossier_id: presenceStatus === "offline" ? null : dossier_id,
+        nom: user.nom,
+        prenoms: user.prenoms,
+        role: user.role,
+        is_online: true,
+        presence_status: presenceStatus,
+        presence_dossier_id: dossier_id || null,
       });
     });
 
-    // ── Déconnexion douce ──────────────────────────────────────
+    // ── Déconnexion (fermeture brutale, réseau coupé…) ─────────
     socket.on("disconnect", async () => {
-      console.log(`[Socket] ${socket.user.prenoms} ${socket.user.nom} déconnecté (sid=${socketId})`);
+      console.log(`[Socket] ${user.prenoms} ${user.nom} déconnecté (sid=${socketId})`);
 
       // Retirer cette connexion de la liste active
       const sockets = activeSockets.get(userId);
@@ -174,30 +243,15 @@ function initSocket(server) {
       }
 
       // Si plus aucune connexion active pour cet user, démarrer le timer de grâce
-      if (!activeSockets.has(userId) || activeSockets.get(userId).size === 0) {
-        activeSockets.delete(userId);
-
+      if (!activeSockets.has(userId)) {
         const timer = setTimeout(async () => {
           // Re-vérifier : l'utilisateur s'est-il reconnecté pendant le délai ?
           if (!activeSockets.has(userId)) {
-            console.log(`[Socket] ${socket.user.prenoms} ${socket.user.nom} marqué offline (grâce expirée)`);
-            await db.query(
-              `UPDATE utilisateur
-               SET presence_status = 'offline',
-                   last_activity_at = CURRENT_TIMESTAMP,
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = $1`,
-              [userId]
-            );
-            io.to("admins").emit("presence:update", {
-              id: userId,
-              nom: socket.user.nom,
-              prenoms: socket.user.prenoms,
-              role: socket.user.role,
-              is_online: false,
-              presence_status: "offline",
-              presence_dossier_id: null,
-            });
+            try {
+              await markOffline(user, userId);
+            } catch (err) {
+              console.error("[Socket] Erreur déconnexion douce:", err.message);
+            }
           }
           disconnectTimers.delete(userId);
         }, DISCONNECT_GRACE_MS);

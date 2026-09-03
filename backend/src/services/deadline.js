@@ -18,8 +18,10 @@ let jourFeriesCacheDate = null;
 async function loadJourFeriesFromDB() {
   try {
     const db = require("../config/db");
+    // to_char : on compare des dates « calendrier » (YYYY-MM-DD), sans fuseau
     const { rows } = await db.query(
-      `SELECT date_ferie FROM jour_ferier ORDER BY date_ferie ASC`
+      `SELECT to_char(date_ferie, 'YYYY-MM-DD') AS date_ferie
+       FROM jour_ferier ORDER BY date_ferie ASC`
     );
     jourFeriesCache = rows.map((r) => r.date_ferie);
     jourFeriesCacheDate = Date.now();
@@ -45,6 +47,31 @@ async function getJourFeries() {
  */
 function invalidateJourFeriesCache() {
   jourFeriesCacheDate = null;
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+function dateStrFromParts(parts) {
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+}
+
+/**
+ * Normalise une date (Date JS, Date PostgreSQL, ISO, 'YYYY-MM-DD')
+ * en chaîne 'YYYY-MM-DD' (date calendrier, sans heure).
+ */
+function toDateStr(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+  }
+  return String(value).slice(0, 10);
+}
+
+/**
+ * Date « aujourd'hui » au format YYYY-MM-DD dans la timezone métier (Europe/Paris).
+ */
+function getTodayDateStr() {
+  return dateStrFromParts(getParisParts(new Date()));
 }
 
 function getParisParts(date) {
@@ -93,7 +120,7 @@ function isWeekend(parts) {
  */
 function isJourFerier(parts, jourFeries) {
   if (!jourFeries || jourFeries.length === 0) return false;
-  const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  const dateStr = dateStrFromParts(parts);
   return jourFeries.includes(dateStr);
 }
 
@@ -117,9 +144,11 @@ function isWorkingMinute(parts, jourFeries) {
 }
 
 function isOnCongeDate(parts, congeDebut, congeFin) {
-  if (!congeDebut || !congeFin) return false;
-  const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-  return dateStr >= congeDebut && dateStr <= congeFin;
+  const debut = toDateStr(congeDebut);
+  const fin = toDateStr(congeFin);
+  if (!debut || !fin) return false;
+  const dateStr = dateStrFromParts(parts);
+  return dateStr >= debut && dateStr <= fin;
 }
 
 /**
@@ -164,8 +193,8 @@ function countWorkingSeconds(fromDate, toDate, congeDebut, congeFin, jourFeries)
   const maxIter = 365 * 24 * 60; // 1 an max
 
   while (safety < maxIter) {
-    const currentStr = `${parts.year}${String(parts.month).padStart(2, "0")}${String(parts.day).padStart(2, "0")}${String(parts.hour).padStart(2, "0")}${String(parts.minute).padStart(2, "0")}`;
-    const endStr = `${endParts.year}${String(endParts.month).padStart(2, "0")}${String(endParts.day).padStart(2, "0")}${String(endParts.hour).padStart(2, "0")}${String(endParts.minute).padStart(2, "0")}`;
+    const currentStr = `${parts.year}${pad2(parts.month)}${pad2(parts.day)}${pad2(parts.hour)}${pad2(parts.minute)}`;
+    const endStr = `${endParts.year}${pad2(endParts.month)}${pad2(endParts.day)}${pad2(endParts.hour)}${pad2(endParts.minute)}`;
 
     if (currentStr >= endStr) break;
 
@@ -266,4 +295,7 @@ module.exports = {
   getJourFeries,
   invalidateJourFeriesCache,
   loadJourFeriesFromDB,
+  dateStrFromParts,
+  toDateStr,
+  getTodayDateStr,
 };

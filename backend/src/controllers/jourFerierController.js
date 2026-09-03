@@ -8,7 +8,9 @@ const { invalidateJourFeriesCache } = require("../services/deadline");
 async function list(req, res) {
   try {
     const { rows } = await db.query(
-      `SELECT jf.id, jf.date_ferie, jf.libelle, jf.created_at,
+      `SELECT jf.id,
+              to_char(jf.date_ferie, 'YYYY-MM-DD') AS date_ferie,
+              jf.libelle, jf.created_at,
               u.nom AS created_by_nom, u.prenoms AS created_by_prenoms
        FROM jour_ferier jf
        LEFT JOIN utilisateur u ON u.id = jf.created_by

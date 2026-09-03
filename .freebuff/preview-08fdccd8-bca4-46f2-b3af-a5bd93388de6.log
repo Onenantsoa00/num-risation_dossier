@@ -1,0 +1,3 @@
+[Socket] Serveur WebSocket initialisé
+[DeadlineMonitor] Surveillance des deadlines démarrée (vérification toutes les 60s)
+API ORDSEC démarrée sur http://0.0.0.0:3000

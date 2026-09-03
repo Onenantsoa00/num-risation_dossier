@@ -81,9 +81,11 @@ async function checkDeadlines() {
 
       if (!userId) continue;
 
-      // Récupérer congé de l'utilisateur
+      // Récupérer congé de l'utilisateur (dates calendrier YYYY-MM-DD)
       const { rows: userRows } = await db.query(
-        `SELECT conge_debut, conge_fin FROM utilisateur WHERE id = $1`,
+        `SELECT to_char(conge_debut, 'YYYY-MM-DD') AS conge_debut,
+                to_char(conge_fin, 'YYYY-MM-DD') AS conge_fin
+         FROM utilisateur WHERE id = $1`,
         [userId]
       );
       const congeDebut = userRows[0]?.conge_debut;
