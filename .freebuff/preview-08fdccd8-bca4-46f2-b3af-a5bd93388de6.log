@@ -1,3 +1,29 @@
 [Socket] Serveur WebSocket initialisé
 [DeadlineMonitor] Surveillance des deadlines démarrée (vérification toutes les 60s)
 API ORDSEC démarrée sur http://0.0.0.0:3000
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=PbsWMVLOQ1JxsJBrAAAB)
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin déconnecté (sid=PbsWMVLOQ1JxsJBrAAAB)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=Y3DAR1cQp2Kut02wAAAD)
+[Socket] Timer déconnexion douce annulé pour user 1
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin déconnecté (sid=Y3DAR1cQp2Kut02wAAAD)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=TRnW-FBYBCEZLsFjAAAF)
+[Socket] Timer déconnexion douce annulé pour user 1
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin déconnecté (sid=TRnW-FBYBCEZLsFjAAAF)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=OsdWYdb2oGf4YUyoAAAH)
+[Socket] Timer déconnexion douce annulé pour user 1
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=3solrEniA1AfJ827AAAJ)
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin déconnecté (sid=3solrEniA1AfJ827AAAJ)
+[Socket] Timer déconnexion douce démarré pour user 2 (30000ms)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=rDCY2LHFSWvR7Ge_AAAL)
+[Socket] Timer déconnexion douce annulé pour user 2
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=OMj4yvFdWyjdC1-IAAAN)

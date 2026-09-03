@@ -217,15 +217,23 @@
                 class="q-mb-sm"
               >
                 <template #option="scope">
-                  <q-item v-bind="scope.itemProps">
+                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
                     <q-item-section avatar>
-                      <q-avatar size="42px" color="primary" text-color="white">
+                      <q-avatar size="42px" :color="scope.opt.en_conge ? 'grey-4' : 'primary'" text-color="white">
                         <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display = 'none'" />
                         <span v-else>{{ initials(scope.opt) }}</span>
                       </q-avatar>
                     </q-item-section>
                     <q-item-section>
-                      <q-item-label>{{ scope.opt.label }}</q-item-label>
+                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                        {{ scope.opt.label }}
+                        <q-badge
+                          v-if="scope.opt.en_conge"
+                          color="negative"
+                          class="q-ml-xs"
+                          label="En congé"
+                        />
+                      </q-item-label>
                       <q-item-label caption>IM : {{ scope.opt.im || "—" }}</q-item-label>
                     </q-item-section>
                   </q-item>
@@ -564,7 +572,26 @@
                 map-options
                 popup-content-class="fullscreen-select-popup"
                 class="q-mb-sm"
-              />
+              >
+                <template #option="scope">
+                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                    <q-item-section>
+                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                        {{ scope.opt.label }}
+                        <q-badge
+                          v-if="scope.opt.en_conge"
+                          color="negative"
+                          class="q-ml-xs"
+                          label="En congé"
+                        />
+                      </q-item-label>
+                      <q-item-label caption>
+                        IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
+                      </q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+              </q-select>
               <q-btn
                 color="primary"
                 icon="person_add"
@@ -919,29 +946,35 @@
               emit-value
               map-options
               class="q-mb-sm"
-            >
-              <template #option="scope">
-                <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
-                  <q-item-section>
-                    <q-item-label>{{ scope.opt.label }}</q-item-label>
-                    <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
-                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
-                    </q-item-label>
-                  </q-item-section>
-                </q-item>
-              </template>
-            </q-select>
-            <q-btn
-              color="primary"
-              icon="person_add"
-              label="Assigner et envoyer"
-              class="full-width q-mb-md"
-              unelevated
-              :loading="busy"
-              :disable="!idVerificateur"
-              @click="assignVerificateur"
-            />
+            >                <template #option="scope">
+                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                    <q-item-section>
+                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                        {{ scope.opt.label }}
+                        <q-badge
+                          v-if="scope.opt.en_conge"
+                          color="negative"
+                          class="q-ml-xs"
+                          label="En congé"
+                        />
+                      </q-item-label>
+                      <q-item-label caption>
+                        IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      </q-item-label>
+                    </q-item-section>
+                  </q-item>
+                </template>
+              </q-select>
+              <q-btn
+                color="primary"
+                icon="person_add"
+                label="Assigner et envoyer"
+                class="full-width q-mb-md"
+                unelevated
+                :loading="busy"
+                :disable="!idVerificateur"
+                @click="assignVerificateur"
+              />
           </template>
 
           <!-- =========================
@@ -1032,24 +1065,32 @@
                 emit-value
                 map-options
                 class="q-mb-sm"
-              >
-                <template #option="scope">
-                  <q-item v-bind="scope.itemProps">
+              >                <template #option="scope">
+                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
                     <q-item-section avatar>
-                      <q-avatar size="40px" color="primary" text-color="white">
+                      <q-avatar size="40px" :color="scope.opt.en_conge ? 'grey-4' : 'primary'" text-color="white">
                         <img
                           v-if="scope.opt.image"
                           :src="scope.opt.image"
                           alt="Photo"
                         />
-                        <span v-else>{{ initials(scope.opt) }}</span>
+                        <span v-else>
+                          {{ initials(scope.opt) }}
+                        </span>
                       </q-avatar>
                     </q-item-section>
                     <q-item-section>
-                      <q-item-label>{{ scope.opt.label }}</q-item-label>
+                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                        {{ scope.opt.label }}
+                        <q-badge
+                          v-if="scope.opt.en_conge"
+                          color="negative"
+                          class="q-ml-xs"
+                          label="En congé"
+                        />
+                      </q-item-label>
                       <q-item-label caption>
                         IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
-                        <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
                       </q-item-label>
                     </q-item-section>
                   </q-item>

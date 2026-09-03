@@ -8,12 +8,29 @@ export const useNotificationStore = defineStore("notifications", {
     items: [],
     unread: 0,
     previousUnread: 0,
+    _initialized: false,
     _socketListener: false,
     _retryTimer: null,
     _pollTimer: null,
   }),
 
   actions: {
+    /**
+     * Applique un nouveau compteur non-lu.
+     * Joue un son si le compteur AUGMENTE après le premier chargement.
+     */
+    _applyCount(count, { sound = true } = {}) {
+      const increased = this._initialized && count > this.unread;
+      this.previousUnread = this.unread;
+      this.unread = count;
+      this._initialized = true;
+      if (sound && increased) {
+        // Une notification est arrivée sans événement temps réel
+        // (socket coupé) → on émet quand même le son.
+        playNotificationSound();
+      }
+    },
+
     async fetch() {
       try {
         const [list, count] = await Promise.all([
@@ -21,8 +38,7 @@ export const useNotificationStore = defineStore("notifications", {
           api.get("/notifications/unread-count"),
         ]);
         this.items = list.data;
-        this.previousUnread = this.unread;
-        this.unread = count.data.count;
+        this._applyCount(count.data.count, { sound: true });
       } catch {
         // silencieux
       }
@@ -94,10 +110,9 @@ export const useNotificationStore = defineStore("notifications", {
         playNotificationSound();
       });
 
-      // ── Compteur mis à jour ──
+      // ── Compteur mis à jour (le son est déjà joué sur notification:new) ──
       socket.on("notification:unread-count", (data) => {
-        this.previousUnread = this.unread;
-        this.unread = data.count;
+        this._applyCount(data.count, { sound: false });
       });
 
       console.log("[NotifStore] Listeners WebSocket enregistrés ✓");
@@ -132,11 +147,9 @@ export const useNotificationStore = defineStore("notifications", {
         const socket = getSocket();
         if (!socket?.connected) {
           // Pas de WebSocket actif — poller le compteur
-          api.get("/notifications/unread-count")
-            .then(({ data }) => {
-              this.previousUnread = this.unread;
-              this.unread = data.count;
-            })
+          api
+            .get("/notifications/unread-count")
+            .then(({ data }) => this._applyCount(data.count, { sound: true }))
             .catch(() => {});
         }
       }, 30000);
