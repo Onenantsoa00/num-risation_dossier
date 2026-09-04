@@ -187,3 +187,23 @@ voici l'erreur quand c'est le même dossier, l'ancien dossier n'affiche pas mais
 et le timer reste toujours en pause or il devrait marcher entre 08h - 12h et entre 14h - 16h, ajoute le fonctionnalité, quand c'est le samedi est dimanche il ne marche pas et dans le partie utilisateur pour le role admin et super_admin ajoute le mode jour ferier ou les gens ne travaille pas est le timer ne marche pas n'en plus à ce jours là
 
 pour prendre le schema d'une base de données : "sudo -u postgres pg_dump -d gestion_dossiers --schema-only > ~/schema_serveur.sql"
+
+## Production (mise en service sur le serveur)
+
+Sur le serveur de l'entreprise (certains PC du parc sont peu puissants : 2 Go de RAM, disque dur HDD) :
+
+```bash
+# 1. Construire le frontend une seule fois (ou à chaque mise à jour)
+npm run build          # génère frontend/dist/spa
+
+# 2. Démarrer le backend : il sert aussi le frontend construit
+npm start              # équivaut à NODE_ENV=production npm start --prefix backend
+```
+
+L'application est alors accessible sur `http://IP_du_serveur:3000`.
+
+### Logs : développement vs production
+
+- **Développement** : tous les logs s'affichent (console du backend + console du navigateur).
+- **Production** : les logs de routine (`console.log` / `info` / `warn` / `debug`) sont coupés automatiquement pour ne pas surcharger les machines faibles ; seules les erreurs (`console.error`) restent visibles pour diagnostiquer un incident.
+- **Dépannage ponctuel en production** : lancer `LOG_LEVEL=debug npm start --prefix backend` réaffiche tous les logs même en mode production.

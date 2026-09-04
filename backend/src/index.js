@@ -1,5 +1,33 @@
 require("dotenv").config();
 
+/*
+ * ============================================================
+ * LOGS
+ * ============================================================
+ * En développement : tous les logs s'affichent dans la console.
+ *
+ * En production (NODE_ENV=production) : les logs de routine
+ * (console.log / info / warn / debug) sont coupés pour ne pas
+ * surcharger les machines à faible configuration
+ * (2 Go de RAM, disque dur HDD).
+ *
+ * Les erreurs (console.error) restent affichées en production
+ * afin de pouvoir diagnostiquer un incident éventuel.
+ *
+ * Astuce dépannage : lancer avec LOG_LEVEL=debug pour réafficher
+ * les logs de routine même en production.
+ * ============================================================
+ */
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.LOG_LEVEL !== "debug"
+) {
+  const noop = () => {};
+  ["log", "info", "warn", "debug"].forEach((method) => {
+    console[method] = noop;
+  });
+}
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
