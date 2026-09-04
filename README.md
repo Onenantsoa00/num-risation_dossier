@@ -185,3 +185,5 @@ voici l'erreur quand c'est le même dossier, l'ancien dossier n'affiche pas mais
        POST http://localhost:9000/api/dossiers 409 (Conflict)"
 
 et le timer reste toujours en pause or il devrait marcher entre 08h - 12h et entre 14h - 16h, ajoute le fonctionnalité, quand c'est le samedi est dimanche il ne marche pas et dans le partie utilisateur pour le role admin et super_admin ajoute le mode jour ferier ou les gens ne travaille pas est le timer ne marche pas n'en plus à ce jours là
+
+pour prendre le schema d'une base de données : "sudo -u postgres pg_dump -d gestion_dossiers --schema-only > ~/schema_serveur.sql"
