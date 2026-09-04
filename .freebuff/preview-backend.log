@@ -1,0 +1,37 @@
+[Socket] Serveur WebSocket initialisé
+[DeadlineMonitor] Surveillance des deadlines démarrée (vérification toutes les 60s)
+API ORDSEC démarrée sur http://0.0.0.0:3000
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=ti7tSPyrolh124o8AAAB)
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin déconnecté (sid=ti7tSPyrolh124o8AAAB)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=MxkCBk89uCgYjSLSAAAD)
+[Socket] Timer déconnexion douce annulé pour user 1
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin déconnecté (sid=MxkCBk89uCgYjSLSAAAD)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=lsEuud00jKd794lsAAAF)
+[Socket] Timer déconnexion douce annulé pour user 1
+Error: Origine non autorisée par CORS.
+    at origin (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/src/index.js:123:23)
+    at /media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/cors/lib/index.js:219:13
+    at optionsCallback (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/cors/lib/index.js:199:9)
+    at corsMiddleware (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/cors/lib/index.js:204:7)
+    at Layer.handle [as handle_request] (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/index.js:328:13)
+    at /media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/index.js:346:12)
+    at next (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/index.js:280:10)
+    at expressInit (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/middleware/init.js:40:5)
+[Socket] Utilisateur 1 Admin déconnecté (sid=lsEuud00jKd794lsAAAF)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin connecté (id=1, sid=abjUjJoOihUDUfevAAAH)
+[Socket] Timer déconnexion douce annulé pour user 1
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin marqué offline
+[Socket] Utilisateur 1 Admin déconnecté (sid=abjUjJoOihUDUfevAAAH)
+[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+[Socket] Utilisateur 1 Admin marqué offline

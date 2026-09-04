@@ -5,6 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "start:prod": "NODE_ENV=production node src/index.js",
     "dev": "node --watch src/index.js",
     "seed": "node src/utils/seed.js"
   },

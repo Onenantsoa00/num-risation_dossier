@@ -2,7 +2,7 @@ import { configure } from 'quasar/wrappers'
 
 export default configure((/* ctx */) => {
   return {
-    boot: ['axios', 'socket'],
+    boot: ['logger', 'axios', 'socket'],
     css: ['app.scss'],
     extras: [
       'roboto-font',
