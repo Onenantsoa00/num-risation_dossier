@@ -1,13 +1,49 @@
 /**
  * Calcul des deadlines en heures ouvrées uniquement.
- * Plages : 08h-12h et 14h-16h, heure locale de l'entreprise
+ * Plages : 08h-12h et 14h-16h, heure de Madagascar
  * (fuseau Indian/Antananarivo, UTC+3, sans heure d'été).
  * Jours ouvrés : lundi à vendredi, hors jours fériés.
- * Durée totale : 16 heures ouvrées.
+ *
+ * Nouvelle règle (définie par le métier) :
+ *  - Quand la « pile » (file FIFO) d'un vérificateur / validateur est VIDE
+ *    et qu'un premier dossier lui est assigné, la pile démarre avec un
+ *    budget de 12 h de travail.
+ *  - Chaque dossier supplémentaire qui entre dans une pile NON vide
+ *    ajoute +3 h (n° de compte « rapide ») ou +12 h (autre compte).
+ *  - La deadline de la pile = pile_start + budget total (en heures ouvrées).
+ *  - Quand la pile se vide, le prochain dossier démarre une nouvelle pile
+ *    (budget = 12 h à nouveau).
+ *  - Le chrono se met en pause pendant : congé de la personne assignée,
+ *    jours fériés, week-ends, et hors des plages 08h-12h / 14h-16h.
  */
 
 const TIMEZONE = "Indian/Antananarivo";
+
+// Ancienne règle (conservée en secours pour les dossiers déjà en cours)
 const DEADLINE_WORKING_SECONDS = 16 * 3600; // 16 heures ouvrées
+
+// Nouvelle règle : pile FIFO par utilisateur
+const PILE_BASE_SEC = 12 * 3600; // 1er dossier d'une pile vide → 12h
+const FAST_ACCOUNT_CODES = [
+  "6241",
+  "6131",
+  "6561",
+  "6242",
+  "6231",
+  "6232",
+  "6263",
+  "6264",
+];
+
+/**
+ * Budget (en secondes) ajouté à la pile par un dossier supplémentaire
+ * qui entre alors que la pile n'est pas vide.
+ */
+function pileExtraSecForAccount(nCompte) {
+  const code = String(nCompte || "").trim();
+  if (FAST_ACCOUNT_CODES.includes(code)) return 3 * 3600; // +3h
+  return 12 * 3600; // +12h
+}
 
 /** Cache des jours fériés (dates au format YYYY-MM-DD) */
 let jourFeriesCache = [];
@@ -213,12 +249,76 @@ function countWorkingSeconds(fromDate, toDate, congeDebut, congeFin, jourFeries)
   return seconds;
 }
 
+function realDateFromParts(parts) {
+  // Antananarivo = UTC+3 fixe (pas d'heure d'été).
+  // Les parts représentent l'heure « murale » locale → instant réel = parts − 3h.
+  return new Date(
+    Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second || 0,
+    ) - 3 * 3600 * 1000,
+  );
+}
+
+/**
+ * Avance depuis une date de départ en ajoutant `workingSeconds` de TRAVAIL
+ * (seules les minutes ouvrées comptent : 08h-12h / 14h-16h, hors week-end,
+ * jours fériés et congé). Renvoie l'instant absolu (Date) atteint.
+ */
+function addWorkingSeconds(
+  fromDate,
+  workingSeconds,
+  congeDebut,
+  congeFin,
+  jourFeries,
+) {
+  if (!fromDate) return null;
+  let parts = getParisParts(new Date(fromDate));
+  let remaining = Math.max(0, Number(workingSeconds) || 0);
+  let safety = 0;
+  const maxIter = 366 * 24 * 60; // 1 an max de minutes
+
+  while (safety < maxIter) {
+    if (remaining <= 0) break;
+    if (
+      isWorkingMinute(parts, jourFeries) &&
+      !isOnCongeDate(parts, congeDebut, congeFin)
+    ) {
+      remaining -= 60;
+    }
+    parts = advanceOneMinute(parts);
+    safety += 1;
+  }
+  return realDateFromParts(parts);
+}
+
 /**
  * Calcule le temps restant en secondes ouvrées pour un dossier.
+ *
+ * Nouveau modèle « pile » : si le dossier porte des champs de pile
+ * (deadline_*_pile_start + deadline_*_pile_budget_sec), la deadline est
+ * celle de la pile complète (FIFO). Sinon, on retombe sur l'ancien
+ * modèle par dossier (compatibilité).
  */
-async function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
+async function getDeadlineRemaining(
+  dossier,
+  type,
+  congeDebut,
+  congeFin,
+  nowMs = Date.now(),
+) {
   const jourFeries = await getJourFeries();
   const isVerif = type === "verification";
+  const pileStart = isVerif
+    ? dossier.deadline_verif_pile_start
+    : dossier.deadline_valid_pile_start;
+  const pileBudget = isVerif
+    ? dossier.deadline_verif_pile_budget_sec
+    : dossier.deadline_valid_pile_budget_sec;
   const assignedAt = isVerif
     ? dossier.assigned_verification_at
     : dossier.assigned_validation_at;
@@ -229,15 +329,32 @@ async function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
     ? dossier.deadline_verif_paused_at
     : dossier.deadline_valid_paused_at;
 
-  // FIFO : si assigned_at est NULL, le timer n'a pas encore démarré
-  // (dossier en attente derrière un autre dossier actif)
+  // FIFO : si assigned_at est NULL, le dossier est en attente derrière
+  // un autre dossier actif (l'ordre est géré par startNextQueuedTimer).
+  const waiting = !assignedAt;
+
+  const now = new Date(nowMs);
+
+  // ── Nouveau modèle « pile » ────────────────────────────────
+  if (pileStart && pileBudget) {
+    const elapsed = countWorkingSeconds(
+      new Date(pileStart),
+      now,
+      congeDebut,
+      congeFin,
+      jourFeries,
+    );
+    const remaining = Math.max(0, Number(pileBudget) - elapsed);
+    const isPaused = isDeadlinePausedNow(congeDebut, congeFin, jourFeries);
+    return { remaining, isPaused, waiting };
+  }
+
+  // ── Ancien modèle par dossier (compatibilité) ──────────────
   if (!assignedAt) {
     return { remaining: DEADLINE_WORKING_SECONDS, isPaused: true, waiting: true };
   }
 
-  const now = new Date();
   let additional = 0;
-
   if (pausedAt) {
     additional = countWorkingSeconds(
       new Date(assignedAt),
@@ -260,9 +377,31 @@ async function getDeadlineRemaining(dossier, type, congeDebut, congeFin) {
   const remaining = Math.max(0, DEADLINE_WORKING_SECONDS - totalElapsed);
   const isPaused =
     isDeadlinePausedNow(congeDebut, congeFin, jourFeries) ||
-    (pausedAt && !isWorkingMinute(getParisParts(new Date()), jourFeries));
+    (pausedAt && !isWorkingMinute(getParisParts(new Date(nowMs)), jourFeries));
 
   return { remaining, isPaused, waiting: false };
+}
+
+/**
+ * Date (instantané absolu) de la deadline d'une pile.
+ */
+async function getPileDeadlineAt(dossier, type, congeDebut, congeFin) {
+  const jourFeries = await getJourFeries();
+  const isVerif = type === "verification";
+  const pileStart = isVerif
+    ? dossier.deadline_verif_pile_start
+    : dossier.deadline_valid_pile_start;
+  const pileBudget = isVerif
+    ? dossier.deadline_verif_pile_budget_sec
+    : dossier.deadline_valid_pile_budget_sec;
+  if (!pileStart || !pileBudget) return null;
+  return addWorkingSeconds(
+    pileStart,
+    pileBudget,
+    congeDebut,
+    congeFin,
+    jourFeries,
+  );
 }
 
 function formatRemaining(seconds, isPaused = false) {
@@ -286,8 +425,13 @@ function isDeadlineExpired(remaining) {
 
 module.exports = {
   DEADLINE_WORKING_SECONDS,
+  PILE_BASE_SEC,
+  FAST_ACCOUNT_CODES,
+  pileExtraSecForAccount,
   countWorkingSeconds,
+  addWorkingSeconds,
   getDeadlineRemaining,
+  getPileDeadlineAt,
   formatRemaining,
   isDeadlineExpired,
   isWorkingMinute,

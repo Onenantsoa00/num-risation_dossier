@@ -1,6 +1,10 @@
 const db = require("../config/db");
 const { createNotification } = require("./helpers");
-const { getTodayDateStr } = require("./deadline");
+const {
+  getTodayDateStr,
+  PILE_BASE_SEC,
+  pileExtraSecForAccount,
+} = require("./deadline");
 
 function dossierFieldsKey(n_compte, n_be, n_soa, n_ord, exo_budgetaire) {
   return [
@@ -243,6 +247,84 @@ async function startNextQueuedTimer(userId, role) {
 }
 
 /**
+ * Fait entrer un dossier dans la « pile » FIFO d'un utilisateur pour un rôle
+ * (Verificateur → EN_VERIFICATION / deadline_verif_*, Validateur →
+ * EN_VALIDATION / deadline_valid_*).
+ *
+ * Règle métier :
+ *  - pile VIDE → le dossier démarre une pile avec 12 h de budget,
+ *    pile_start = maintenant.
+ *  - pile NON vide → le dossier entre en file (derrière les autres) et la
+ *    pile gagne +3 h (n° compte rapide) ou +12 h (sinon).
+ *
+ * Tous les dossiers encore dans la pile partagent le même pile_start et le
+ * même budget (mis à jour ici). `excludeDossierId` permet d'ignorer le
+ * dossier en cours (réassignation / nouvelle version).
+ */
+async function joinPileDeadline({
+  userId,
+  role,
+  nCompte,
+  dossierId,
+  excludeDossierId = null,
+  executor = db,
+}) {
+  const isVerif = role === "Verificateur";
+  const statut = isVerif ? "EN_VERIFICATION" : "EN_VALIDATION";
+  const idCol = isVerif ? "id_verificateur" : "id_validateur";
+  const pre = isVerif ? "deadline_verif" : "deadline_valid";
+
+  const exclusions = [];
+  const params = [userId, statut];
+  if (excludeDossierId) {
+    params.push(excludeDossierId);
+    exclusions.push(`AND d.id <> $${params.length}`);
+  }
+
+  // État actuel de la pile (premier dossier qui en fait partie)
+  const { rows } = await executor.query(
+    `SELECT d.${pre}_pile_start AS pile_start,
+            d.${pre}_pile_budget_sec AS pile_budget
+     FROM dossier d
+     WHERE d.${idCol} = $1 AND d.statut = $2 ${exclusions.join(" ")}
+     ORDER BY d.${pre}_pile_start ASC NULLS LAST, d.id ASC
+     LIMIT 1`,
+    params,
+  );
+
+  const now = new Date();
+  const pileStart = rows[0]?.pile_start ? new Date(rows[0].pile_start) : now;
+  const existingBudget = Number(rows[0]?.pile_budget || 0);
+  // Pile vide → 12h ; pile non vide → +3h/+12h selon le compte.
+  const budget = rows[0]?.pile_start
+    ? existingBudget + pileExtraSecForAccount(nCompte)
+    : PILE_BASE_SEC;
+
+  // 1) Le dossier qui entre porte l'état de la pile.
+  await executor.query(
+    `UPDATE dossier
+     SET ${pre}_pile_start = $1,
+         ${pre}_pile_budget_sec = $2,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $3`,
+    [pileStart, budget, dossierId],
+  );
+
+  // 2) Tous les autres dossiers de la pile partagent le nouveau budget.
+  //    (on ne touche PAS à updated_at : il sert d'ordre FIFO d'entrée dans la file)
+  const updParams = [userId, statut, budget];
+  let updSql = `UPDATE dossier SET ${pre}_pile_budget_sec = $3
+                WHERE ${idCol} = $1 AND statut = $2 AND ${pre}_pile_start IS NOT NULL`;
+  if (excludeDossierId) {
+    updParams.push(excludeDossierId);
+    updSql += ` AND id <> $4`;
+  }
+  await executor.query(updSql, updParams);
+
+  return { pileStart, budget };
+}
+
+/**
  * Vérifie si un dossier est le PREMIER dans la file FIFO d'un utilisateur.
  * Retourne { isBlocked: true, blockingDossier } si bloqué, sinon { isBlocked: false }.
  */
@@ -291,4 +373,5 @@ module.exports = {
   hasPendingDossier,
   startNextQueuedTimer,
   checkFifoOrder,
+  joinPileDeadline,
 };

@@ -91,8 +91,9 @@ const expired = computed(
 
 const urgencyClass = computed(() => {
   if (expired.value) return "timer-digits--expired";
-  if (props.remainingSec <= 1800) return "timer-digits--danger"; // 30 min
-  if (props.remainingSec <= 3600) return "timer-digits--warning"; // 1h
+  // Aide visuelle : > 24h → vert ; 3h–24h → jaune ; < 3h → rouge
+  if (props.remainingSec <= 3 * 3600) return "timer-digits--danger";
+  if (props.remainingSec <= 24 * 3600) return "timer-digits--warning";
   return "timer-digits--normal";
 });
 
@@ -106,8 +107,8 @@ const timerClass = computed(() => ({
   "dossier-timer--expired": expired.value,
   "dossier-timer--paused": props.isPaused && !props.waiting,
   "dossier-timer--waiting": props.waiting,
-  "dossier-timer--danger": props.remainingSec <= 1800 && !expired.value && !props.waiting,
-  "dossier-timer--warning": props.remainingSec <= 3600 && props.remainingSec > 1800 && !props.waiting,
+  "dossier-timer--danger": props.remainingSec <= 3 * 3600 && !expired.value && !props.waiting,
+  "dossier-timer--warning": props.remainingSec > 3 * 3600 && props.remainingSec <= 24 * 3600 && !props.waiting,
 }));
 </script>
 

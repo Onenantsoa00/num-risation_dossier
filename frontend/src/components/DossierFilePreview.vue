@@ -80,6 +80,15 @@ frontend/src/components/DossierFilePreview.vue
       <!-- =========================
            PDF
            ========================= -->
+      <PdfEditorViewer
+        v-if="kind === 'pdf' && previewUrl && canEditPdf"
+        :src="previewUrl"
+        :file-name="displayName"
+        :dossier-id="dossierId"
+        :can-delete="canDeletePages"
+        :can-move="canMovePages"
+        @saved="$emit('saved')"
+      />
       <div v-else-if="kind === 'pdf' && previewUrl" class="pdf-viewer">
         <iframe
           :src="previewUrl"
@@ -172,6 +181,8 @@ import { computed, onUnmounted, ref, watch } from "vue";
 
 import JSZip from "jszip";
 
+import PdfEditorViewer from "components/PdfEditorViewer.vue";
+
 import {
   formatFileSize,
   getFileExtension,
@@ -219,10 +230,43 @@ const props = defineProps({
     type: Object,
     default: () => ({}),
   },
+
+  /** Édition PDF dans l'application (supprimer / déplacer des pages) */
+  dossierId: {
+    type: [Number, String],
+    default: null,
+  },
+
+  role: {
+    type: String,
+    default: "",
+  },
 });
 
-const emit = defineEmits(["download", "fullscreen"]);
+const emit = defineEmits(["download", "fullscreen", "saved"]);
 const isFullscreen = ref(false);
+
+/**
+ * Droits d'édition PDF selon le rôle :
+ * - Verificateur : peut DÉPLACER des pages
+ * - Validateur / Admin / super_admin : peuvent SUPPRIMER et DÉPLACER des pages
+ */
+const canEditPdf = computed(() => {
+  if (!props.dossierId) return false;
+  return ["Verificateur", "Validateur", "Admin", "super_admin"].includes(
+    props.role,
+  );
+});
+
+const canDeletePages = computed(() => {
+  return ["Validateur", "Admin", "super_admin"].includes(props.role);
+});
+
+const canMovePages = computed(() => {
+  return ["Verificateur", "Validateur", "Admin", "super_admin"].includes(
+    props.role,
+  );
+});
 
 function toggleFullscreen() {
   isFullscreen.value = !isFullscreen.value;

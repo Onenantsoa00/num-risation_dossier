@@ -1,154 +1,148 @@
 import { computed, onMounted, onUnmounted, ref, unref, watch } from "vue";
+import { api } from "boot/axios";
 import {
-  DEADLINE_WORKING_SECONDS,
-  getDeadlineRemaining,
-  getDeadlineType,
+  deadlineColor,
+  formatDeadlineLabel,
   isDeadlinePausedNow,
 } from "src/utils/deadline";
-import { api } from "boot/axios";
 
-export function useDeadlineTimer(dossierRef, authStore) {
-  const serverRemaining = ref(null);
-  const serverTimestamp = ref(null); // timestamp du dernier calcul
-  const localRemaining = ref(null);
+/**
+ * Chrono de deadline.
+ *
+ * Horloge universelle : le serveur (Madagascar) fait foi. Chaque réponse
+ * enrichie contient deadline_server_now → on calcule un décalage
+ * (serveur − PC) et TOUTES les décisions (pause, travail) utilisent
+ * « maintenant virtuel » = horloge du PC + décalage. Ainsi, même si un
+ * poste n'est pas à l'heure, le chrono suit l'horloge de Madagascar.
+ *
+ * Modèle « pile » : le backend fournit deadline_remaining_sec (budget de
+ * travail restant de toute la file FIFO). Entre deux synchronisations, le
+ * chrono décrémente 1 s/s tant qu'on n'est pas en pause ; les bascules
+ * pause/reprise (12h, 14h, 16h, week-end, férié, congé) sont détectées à
+ * la seconde grâce à l'horloge virtuelle.
+ */
+export function useDeadlineTimer(dossierRef) {
+  const remainingSec = ref(null);
   const isPaused = ref(false);
   const waiting = ref(false);
   const label = ref("");
-  /** Congé de la personne assignée au dossier (dates calendrier YYYY-MM-DD) */
+  const deadlineAt = ref(null);
+
   const congeDebut = ref(null);
   const congeFin = ref(null);
-  let tickInterval = null;
-  let syncInterval = null;
-
-  /** Jours fériés chargés depuis l'API (dates 'YYYY-MM-DD') */
   const jourFeries = ref([]);
 
+  // Décalage serveur − PC (ms). Mis à jour à chaque payload enrichi.
+  let clockOffsetMs = 0;
+  let tickInterval = null;
+  let syncInterval = null;
+  let lastFeriesLoad = 0;
+
+  function virtualNow() {
+    return new Date(Date.now() + clockOffsetMs);
+  }
+
   async function loadJourFeries() {
+    const now = Date.now();
+    if (now - lastFeriesLoad < 5 * 60_000) return; // au plus toutes les 5 min
     try {
       const { data } = await api.get("/jours-feries");
       jourFeries.value = data.map((j) => String(j.date_ferie).slice(0, 10));
+      lastFeriesLoad = Date.now();
     } catch {
       jourFeries.value = [];
     }
   }
 
   /**
-   * Recalcule le timer depuis le dossier (comme le backend) :
-   * les secondes écoulées ne comptent que pendant les heures ouvrées
-   * (08h-12h / 14h-16h, hors week-end et jours fériés) et hors congé
-   * de la personne assignée. C'est ce qui déclenche l'état PAUSE.
+   * Applique l'état « frais » renvoyé par le serveur (dossier enrichi).
    */
+  function applyServerState(d) {
+    if (!d) return;
+    if (d.deadline_server_now) {
+      const serverMs = Date.parse(d.deadline_server_now);
+      if (!Number.isNaN(serverMs)) {
+        clockOffsetMs = serverMs - Date.now();
+      }
+    }
+    waiting.value = !!d.deadline_waiting;
+    congeDebut.value = d.deadline_conge_debut || null;
+    congeFin.value = d.deadline_conge_fin || null;
+    deadlineAt.value = d.deadline_at || null;
+
+    if (d.deadline_remaining_sec == null) {
+      // Dossier non enrichi (pas le rôle/statut concerné) → pas de chrono
+      remainingSec.value = null;
+      isPaused.value = false;
+      label.value = "";
+      return;
+    }
+
+    remainingSec.value = Number(d.deadline_remaining_sec);
+    isPaused.value = !!d.deadline_is_paused;
+    label.value = waiting.value
+      ? "En attente (file FIFO)"
+      : formatDeadlineLabel(remainingSec.value, isPaused.value);
+  }
+
+  /** Récupère l'état le plus frais auprès du serveur. */
   async function syncWithServer() {
     const dossier = unref(dossierRef);
-    if (!dossier) {
-      localRemaining.value = null;
-      label.value = "";
-      waiting.value = false;
-      return;
-    }
+    if (!dossier?.id) return;
 
-    // Si le backend indique "waiting" (FIFO), pas de timer
-    if (dossier.deadline_waiting) {
-      localRemaining.value = DEADLINE_WORKING_SECONDS;
-      isPaused.value = true;
-      waiting.value = true;
-      label.value = "En attente (file FIFO)";
-      serverRemaining.value = DEADLINE_WORKING_SECONDS;
-      serverTimestamp.value = Date.now();
-      return;
-    }
-
-    const type = getDeadlineType(dossier, authStore.role, authStore.user?.id);
-    if (!type) {
-      localRemaining.value = null;
-      label.value = "";
-      waiting.value = false;
-      serverRemaining.value = null;
-      return;
-    }
-
-    // Recharger les jours fériés (ils peuvent changer en cours de journée)
     await loadJourFeries();
 
-    // Congé de la personne assignée au dossier (renvoyé par le serveur)
-    congeDebut.value = dossier.deadline_conge_debut || null;
-    congeFin.value = dossier.deadline_conge_fin || null;
-
-    const result = getDeadlineRemaining(
-      dossier,
-      type,
-      congeDebut.value,
-      congeFin.value,
-      jourFeries.value,
-    );
-
-    serverRemaining.value = result.remainingSec;
-    serverTimestamp.value = Date.now();
-    localRemaining.value = result.remainingSec;
-    isPaused.value = result.isPaused;
-    waiting.value = false;
-    label.value = formatLabel(result.remainingSec, result.isPaused);
+    try {
+      // Le serveur recalcule remaining/pause à l'instant T → source de vérité.
+      const { data } = await api.get(`/dossiers/${dossier.id}`);
+      applyServerState(data);
+    } catch {
+      // Hors ligne / erreur réseau → on garde le dernier état connu.
+      applyServerState(dossier);
+    }
   }
 
   /**
-   * Tick local : décrémente d'1 seconde toutes les secondes
-   * comme une vraie horloge numérique.
-   *
-   * La pause/reprise est recalculée à CHAQUE seconde (calcul léger,
-   * sans appel réseau) : le timer se met donc automatiquement en pause
-   * à 12h00 / 16h00 / week-end / jour férié / congé, et reprend tout
-   * seul à 14h00 / 08h00 le lendemain, à la minute près.
+   * Tick local : décrément d'1 s chaque seconde tant qu'on n'est pas en
+   * pause, avec détection pause/reprise à la seconde (horloge virtuelle).
    */
   function tick() {
     if (waiting.value) return;
-    if (serverRemaining.value == null) return;
-    if (localRemaining.value == null) return;
-    if (localRemaining.value <= 0) return;
+    if (remainingSec.value == null) return;
+    if (remainingSec.value <= 0) {
+      if (label.value !== "Dépassé") label.value = "Dépassé";
+      return;
+    }
 
+    const now = virtualNow();
     const pausedNow = isDeadlinePausedNow(
       congeDebut.value,
       congeFin.value,
       jourFeries.value,
+      now,
     );
 
-    // Bascule pause <-> reprise dès que la plage horaire change
     if (pausedNow !== isPaused.value) {
       isPaused.value = pausedNow;
-      label.value = formatLabel(localRemaining.value, isPaused.value);
+      label.value = formatDeadlineLabel(remainingSec.value, isPaused.value);
     }
     if (pausedNow) return;
 
-    // Décrémenter d'1 seconde
-    localRemaining.value = Math.max(0, localRemaining.value - 1);
-    label.value = formatLabel(localRemaining.value, isPaused.value);
+    remainingSec.value = Math.max(0, remainingSec.value - 1);
+    label.value = formatDeadlineLabel(remainingSec.value, isPaused.value);
   }
 
-  function formatLabel(sec, paused) {
-    if (sec <= 0) return "Dépassé";
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    const base = `${h}h ${String(m).padStart(2, "0")}min ${String(s).padStart(2, "0")}s`;
-    return paused ? `${base} (pause)` : base;
-  }
-
-  // Resynchroniser avec le serveur quand le dossier change
   watch(
     () => unref(dossierRef),
-    async () => {
-      await syncWithServer();
-    },
+    (d) => applyServerState(d),
     { deep: true, immediate: true },
   );
 
   onMounted(async () => {
     await syncWithServer();
-
-    // Tick local toutes les secondes (horloge en temps réel)
     tickInterval = setInterval(tick, 1000);
-
-    // Recalcul périodique (pause hors horaires / congé / férié)
-    syncInterval = setInterval(syncWithServer, 30000);
+    // Resynchronisation périodique (corrige la dérive du PC + jours fériés)
+    syncInterval = setInterval(syncWithServer, 60_000);
   });
 
   onUnmounted(() => {
@@ -156,23 +150,20 @@ export function useDeadlineTimer(dossierRef, authStore) {
     if (syncInterval) clearInterval(syncInterval);
   });
 
-  const remainingSec = computed(() => localRemaining.value);
-
-  const color = computed(() => {
-    if (waiting.value) return "warning";
-    if (localRemaining.value == null) return "grey";
-    if (localRemaining.value <= 0) return "negative";
-    if (isPaused.value) return "grey-7";
-    if (localRemaining.value < 1800) return "negative";
-    if (localRemaining.value < 3600) return "warning";
-    return "info";
-  });
+  /** Couleur d'aide visuelle (vert > 24h, jaune 3h–24h, rouge < 3h). */
+  const color = computed(() =>
+    deadlineColor(remainingSec.value, {
+      waiting: waiting.value,
+      paused: isPaused.value && !waiting.value,
+    }),
+  );
 
   return {
     remainingSec,
     isPaused,
     waiting,
     label,
+    deadlineAt,
     color,
     recompute: syncWithServer,
   };

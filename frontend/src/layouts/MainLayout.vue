@@ -33,8 +33,8 @@
 
           <div class="header-brand__text">
             <div class="header-brand__title">
-              NUMÉRISATION
-              <span>Dossiers</span>
+              TRAITEMENT NUMÉRIQUE
+              <span>FCE</span>
             </div>
           </div>
         </div>
@@ -264,6 +264,7 @@ import { useNotificationStore } from "stores/notifications";
 import { getImageUrl } from "src/utils/files";
 import { usePresence } from "src/composables/usePresence";
 import { initAudio, setupAudioUnlock } from "src/utils/notificationSound";
+import { ensureNotificationPermission } from "src/utils/appToast";
 import { getSocket } from "boot/socket";
 
 // ============================================================
@@ -360,6 +361,13 @@ onMounted(() => {
 
   // Configurer le déblocage audio au premier geste utilisateur
   setupAudioUnlock();
+
+  // Demander la permission de notification système au premier geste utilisateur
+  const askPerm = () => {
+    ensureNotificationPermission();
+    document.removeEventListener("pointerdown", askPerm);
+  };
+  document.addEventListener("pointerdown", askPerm, { once: true });
 });
 
 // ============================================================

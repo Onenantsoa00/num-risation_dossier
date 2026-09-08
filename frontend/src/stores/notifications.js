@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { api } from "boot/axios";
 import { playNotificationSound } from "src/utils/notificationSound";
+import { showAppToast } from "src/utils/appToast";
 import { getSocket } from "boot/socket";
 
 export const useNotificationStore = defineStore("notifications", {
@@ -37,8 +38,20 @@ export const useNotificationStore = defineStore("notifications", {
           api.get("/notifications"),
           api.get("/notifications/unread-count"),
         ]);
+        const previousItems = this.items;
+        const previousUnread = this._initialized ? this.unread : 0;
         this.items = list.data;
         this._applyCount(count.data.count, { sound: true });
+
+        // En l'absence de WebSocket (mode polling), afficher les nouvelles
+        const socket = getSocket();
+        if (!socket?.connected && this._initialized && count.data.count > previousUnread) {
+          const prevIds = new Set(previousItems.map((n) => n.id));
+          list.data
+            .filter((n) => !prevIds.has(n.id))
+            .slice(0, 3)
+            .forEach((n) => showAppToast(n));
+        }
       } catch {
         // silencieux
       }
@@ -105,9 +118,10 @@ export const useNotificationStore = defineStore("notifications", {
         this.previousUnread = this.unread;
         this.unread++;
 
-        // Jouer le son pour TOUS les rôles
+        // Jouer le son pour TOUS les rôles + toast type WhatsApp + notification OS
         console.log("[NotifStore] Nouvelle notification reçue:", notif.message);
         playNotificationSound();
+        showAppToast(notif);
       });
 
       // ── Compteur mis à jour (le son est déjà joué sur notification:new) ──

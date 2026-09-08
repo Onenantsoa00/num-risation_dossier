@@ -319,7 +319,7 @@
                 <div class="col-12 col-sm-6">
                   <q-input
                     v-model="quickForm.compte_pc"
-                    label="Compte PC *"
+                    label="Compte Prise en charge *"
                     outlined
                     dense
                     maxlength="15"
@@ -341,7 +341,7 @@
                 <div class="col-12 col-sm-6">
                   <q-input
                     v-model="quickForm.date_fin_dossier"
-                    label="Date fin du dossier *"
+                    label="Date d'écriture *"
                     type="date"
                     outlined
                     dense
@@ -494,7 +494,7 @@ const searchTypeOptions = [
     value: "n_soa",
   },
   {
-    label: "Compte PC",
+    label: "Compte Prise en charge",
     value: "compte_pc",
   },
   {
@@ -502,7 +502,7 @@ const searchTypeOptions = [
     value: "ref_ecriture",
   },
   {
-    label: "Date fin du dossier",
+    label: "Date d'écriture",
     value: "date_fin_dossier",
   },
   {
@@ -781,7 +781,7 @@ function validateQuickArchive() {
   }
 
   if (!quickForm.compte_pc.trim()) {
-    return "Le compte PC est obligatoire.";
+    return "Le compte Prise en charge est obligatoire.";
   }
 
   if (!quickForm.ref_ecriture.trim()) {

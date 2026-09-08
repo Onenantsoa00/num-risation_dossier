@@ -13,6 +13,8 @@ const {
 } = require("../services/helpers");
 const {
   getDeadlineRemaining,
+  getPileDeadlineAt,
+  addWorkingSeconds,
   formatRemaining,
 } = require("../services/deadline");
 const {
@@ -28,6 +30,7 @@ const {
   hasPendingDossier,
   startNextQueuedTimer,
   checkFifoOrder,
+  joinPileDeadline,
 } = require("../services/dossierWorkflow");
 const { uploadDir } = require("../middleware/upload");
 
@@ -113,46 +116,71 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
 
   const enriched = { ...dossier };
 
-  if (
-    dossier.statut === "EN_VERIFICATION" &&
-    (dossier.id_verificateur === userId || ["Admin", "super_admin"].includes(userRole))
-  ) {
+  // Horloge universelle : l'heure du serveur est la référence (pas celle du PC).
+  enriched.deadline_server_now = new Date().toISOString();
+
+  const deadlineColor = (remainingSec, waiting) => {
+    if (waiting) return "waiting";
+    if (remainingSec == null) return "grey";
+    if (remainingSec <= 0) return "red";
+    // > 1 jour (24h) → vert ; entre 3h et 24h → jaune ; moins de 3h → rouge
+    if (remainingSec > 24 * 3600) return "green";
+    if (remainingSec > 3 * 3600) return "yellow";
+    return "red";
+  };
+
+  const apply = async (type) => {
+    const isVerif = type === "verification";
     const { remaining, isPaused, waiting } = await getDeadlineRemaining(
       dossier,
-      "verification",
+      type,
       congeDebut,
       congeFin,
     );
+
+    // Date absolue de la deadline (pour la colonne « Deadline »).
+    let dueAt = await getPileDeadlineAt(dossier, type, congeDebut, congeFin);
+    if (!dueAt) {
+      // Anciens dossiers (sans pile) : deadline projetée depuis maintenant.
+      dueAt = addWorkingSeconds(new Date(), remaining, congeDebut, congeFin);
+    }
+
     enriched.deadline_remaining_sec = remaining;
     enriched.deadline_remaining_label = waiting
       ? "En attente (file FIFO)"
       : formatRemaining(remaining, isPaused);
     enriched.deadline_is_paused = isPaused;
     enriched.deadline_waiting = !!waiting;
+    enriched.deadline_at = dueAt ? dueAt.toISOString() : null;
+    enriched.deadline_color = deadlineColor(remaining, waiting);
+
+    // Champs pile (pour le timer côté client)
+    enriched.deadline_pile_start = isVerif
+      ? dossier.deadline_verif_pile_start
+      : dossier.deadline_valid_pile_start;
+    enriched.deadline_pile_budget_sec = isVerif
+      ? dossier.deadline_verif_pile_budget_sec
+      : dossier.deadline_valid_pile_budget_sec;
+
     // Congé de la personne assignée (dates calendrier) pour le timer côté client
     enriched.deadline_conge_debut = congeDebut;
     enriched.deadline_conge_fin = congeFin;
+  };
+
+  if (
+    dossier.statut === "EN_VERIFICATION" &&
+    (dossier.id_verificateur === userId ||
+      ["Admin", "super_admin"].includes(userRole))
+  ) {
+    await apply("verification");
   }
 
   if (
     dossier.statut === "EN_VALIDATION" &&
-    (dossier.id_validateur === userId || ["Admin", "super_admin"].includes(userRole))
+    (dossier.id_validateur === userId ||
+      ["Admin", "super_admin"].includes(userRole))
   ) {
-    const { remaining, isPaused, waiting } = await getDeadlineRemaining(
-      dossier,
-      "validation",
-      congeDebut,
-      congeFin,
-    );
-    enriched.deadline_remaining_sec = remaining;
-    enriched.deadline_remaining_label = waiting
-      ? "En attente (file FIFO)"
-      : formatRemaining(remaining, isPaused);
-    enriched.deadline_is_paused = isPaused;
-    enriched.deadline_waiting = !!waiting;
-    // Congé de la personne assignée (dates calendrier) pour le timer côté client
-    enriched.deadline_conge_debut = congeDebut;
-    enriched.deadline_conge_fin = congeFin;
+    await apply("validation");
   }
 
   return enriched;
@@ -274,9 +302,7 @@ async function list(req, res) {
     );
 
     const enriched = await Promise.all(
-      rows.map((d) =>
-        enrichDossierWithDeadline(d, req.user.id, req.user.role),
-      ),
+      rows.map((d) => enrichDossierWithDeadline(d, req.user.id, req.user.role)),
     );
     res.json(enriched);
   } catch (err) {
@@ -320,7 +346,7 @@ async function archiveDossier(req, res) {
 
     if (!compte_pc?.trim()) {
       return res.status(400).json({
-        error: "Le compte PC est obligatoire.",
+        error: "Le compte Prise en charge est obligatoire.",
       });
     }
 
@@ -531,7 +557,9 @@ async function create(req, res) {
         return res.status(409).json({
           code: "DUPLICATE_ACTIVE",
           error:
-            "Un dossier identique existe déjà avec le statut " + duplicate.statut + ".",
+            "Un dossier identique existe déjà avec le statut " +
+            duplicate.statut +
+            ".",
           existing_dossier_id: duplicate.id,
           existing_dossier: duplicate,
         });
@@ -594,7 +622,8 @@ async function create(req, res) {
       [
         req.user.id,
         dossier.id,
-        commentaire || "Dossier importé — en attente d'assignation vérificateur",
+        commentaire ||
+          "Dossier importé — en attente d'assignation vérificateur",
       ],
     );
 
@@ -648,9 +677,13 @@ async function confirmReimport(req, res) {
 
     // Le vérificateur existant reprend le nouveau dossier :
     // interdit s'il est en congé.
-    if (dossier.id_verificateur && (await isUserOnConge(dossier.id_verificateur))) {
+    if (
+      dossier.id_verificateur &&
+      (await isUserOnConge(dossier.id_verificateur))
+    ) {
       return res.status(400).json({
-        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+        error:
+          "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
       });
     }
 
@@ -669,8 +702,10 @@ async function confirmReimport(req, res) {
       // ================================================================
       const newVersion = 2;
       const extension = path.extname(req.file.originalname).toLowerCase();
-      const baseName = (dossier.nom || `dossier_${dossier.id}`)
-        .replace(/\(\d+\)$/, "");
+      const baseName = (dossier.nom || `dossier_${dossier.id}`).replace(
+        /\(\d+\)$/,
+        "",
+      );
       const versionedName = `${baseName}(2)`;
       const finalFileName = `${versionedName}${extension}`;
 
@@ -699,7 +734,7 @@ async function confirmReimport(req, res) {
            deadline_verif_elapsed_sec, deadline_verif_paused_at
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EN_VERIFICATION',
            $9, $10, $11, $12, $13, TRUE,
-           ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'}, 0, NULL)
+           ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"}, 0, NULL)
          RETURNING *`,
         [
           versionedName,
@@ -753,6 +788,19 @@ async function confirmReimport(req, res) {
          WHERE id = $2`,
         [newDossier.id, dossier.id],
       );
+
+      // Pile FIFO du vérificateur : 12h si c'est son premier dossier en file,
+      // sinon +3h/+12h selon le n° compte.
+      if (dossier.id_verificateur) {
+        await joinPileDeadline({
+          userId: Number(dossier.id_verificateur),
+          role: "Verificateur",
+          nCompte: newDossier.n_compte || dossier.n_compte,
+          dossierId: newDossier.id,
+          excludeDossierId: newDossier.id,
+          executor: client,
+        });
+      }
 
       await client.query("COMMIT");
 
@@ -812,12 +860,15 @@ async function assignVerificateur(req, res) {
 
     const { id_verificateur } = req.body;
     if (!id_verificateur) {
-      return res.status(400).json({ error: "Un vérificateur doit être désigné" });
+      return res
+        .status(400)
+        .json({ error: "Un vérificateur doit être désigné" });
     }
 
     if (await isUserOnConge(id_verificateur)) {
       return res.status(400).json({
-        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+        error:
+          "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
       });
     }
 
@@ -830,24 +881,39 @@ async function assignVerificateur(req, res) {
       !verif.rows[0] ||
       !["Verificateur", "Admin"].includes(verif.rows[0].role)
     ) {
-      return res.status(400).json({ error: "Utilisateur vérificateur invalide" });
+      return res
+        .status(400)
+        .json({ error: "Utilisateur vérificateur invalide" });
     }
 
-    // FIFO : vérifier si le vérificateur a déjà un dossier actif
-    const activeDossier = await hasActiveDossier(id_verificateur, "Verificateur");
-    const timerIsActive = !activeDossier;
+    // FIFO : le dossier ne démarre son chrono que si la file du vérificateur
+    // est vide (aucun dossier actif ni en attente).
+    const pendingDossier = await hasPendingDossier(
+      id_verificateur,
+      "Verificateur",
+    );
+    const timerIsActive = !pendingDossier;
 
     await db.query(
       `UPDATE dossier SET
          id_verificateur = $1,
          statut = 'EN_VERIFICATION',
-         assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+         assigned_verification_at = ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
          deadline_verif_elapsed_sec = 0,
          deadline_verif_paused_at = NULL,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
       [id_verificateur, dossier.id],
     );
+
+    // Pile FIFO : premier dossier = 12h, dossier suivant = +3h/+12h selon le n° compte.
+    await joinPileDeadline({
+      userId: Number(id_verificateur),
+      role: "Verificateur",
+      nCompte: dossier.n_compte,
+      dossierId: dossier.id,
+      excludeDossierId: dossier.id,
+    });
 
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
@@ -868,7 +934,9 @@ async function assignVerificateur(req, res) {
 
     // WebSocket : notifier le vérificateur et les admins
     const updatedDossier = await getDossierOr404(dossier.id);
-    emitToUser(Number(id_verificateur), "dossier:update", { dossier: updatedDossier });
+    emitToUser(Number(id_verificateur), "dossier:update", {
+      dossier: updatedDossier,
+    });
     emitToAdmins("dossier:update", { dossier: updatedDossier });
 
     res.json(updatedDossier);
@@ -907,7 +975,8 @@ async function comment(req, res) {
     switch (dossier.statut) {
       case "EN_VERIFICATION":
         roleAutorise =
-          (role === "Verificateur" && dossier.id_verificateur === req.user.id) ||
+          (role === "Verificateur" &&
+            dossier.id_verificateur === req.user.id) ||
           ["Admin", "super_admin"].includes(role);
         break;
 
@@ -939,8 +1008,10 @@ async function comment(req, res) {
     //     Le verificateur/validateur ne peut pas interagir
     //     tant qu'un dossier plus ancien n'est pas traité.
     // ------------------------------------------------------------
-    if (["Verificateur", "Validateur"].includes(role) &&
-        ["EN_VERIFICATION", "EN_VALIDATION"].includes(dossier.statut)) {
+    if (
+      ["Verificateur", "Validateur"].includes(role) &&
+      ["EN_VERIFICATION", "EN_VALIDATION"].includes(dossier.statut)
+    ) {
       const fifo = await checkFifoOrder(req.user.id, role, dossier.id);
       if (fifo.isBlocked) {
         return res.status(403).json({
@@ -1019,9 +1090,14 @@ async function comment(req, res) {
     // 8. WebSocket : notifier les participants du dossier
     // ------------------------------------------------------------
     const updated = await getDossierOr404(dossier.id);
-    if (dossier.id_verificateur) emitToUser(dossier.id_verificateur, "dossier:update", { dossier: updated });
-    if (dossier.id_validateur) emitToUser(dossier.id_validateur, "dossier:update", { dossier: updated });
-    if (dossier.id_dispatch) emitToUser(dossier.id_dispatch, "dossier:update", { dossier: updated });
+    if (dossier.id_verificateur)
+      emitToUser(dossier.id_verificateur, "dossier:update", {
+        dossier: updated,
+      });
+    if (dossier.id_validateur)
+      emitToUser(dossier.id_validateur, "dossier:update", { dossier: updated });
+    if (dossier.id_dispatch)
+      emitToUser(dossier.id_dispatch, "dossier:update", { dossier: updated });
     emitToAdmins("dossier:update", { dossier: updated });
 
     // ------------------------------------------------------------
@@ -1063,9 +1139,15 @@ async function sendToValidateur(req, res) {
     }
 
     // FIFO stricte : vérifier l'ordre
-    if (!["Admin", "super_admin"].includes(req.user.role) &&
-        dossier.statut === "EN_VERIFICATION") {
-      const fifo = await checkFifoOrder(req.user.id, "Verificateur", dossier.id);
+    if (
+      !["Admin", "super_admin"].includes(req.user.role) &&
+      dossier.statut === "EN_VERIFICATION"
+    ) {
+      const fifo = await checkFifoOrder(
+        req.user.id,
+        "Verificateur",
+        dossier.id,
+      );
       if (fifo.isBlocked) {
         return res.status(403).json({
           error: `Vous ne pouvez pas envoyer ce dossier au validateur. Le dossier « ${fifo.blockingDossier.nom} » (#${fifo.blockingDossier.id}) doit être traité en premier (ordre FIFO).`,
@@ -1084,7 +1166,10 @@ async function sendToValidateur(req, res) {
        JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
       [id_validateur],
     );
-    if (!val.rows[0] || !["Validateur", "Admin"].includes(val.rows[0].role)) {
+    if (
+      !val.rows[0] ||
+      !["Validateur", "Admin", "super_admin"].includes(val.rows[0].role)
+    ) {
       return res.status(400).json({ error: "Utilisateur validateur invalide" });
     }
 
@@ -1094,22 +1179,35 @@ async function sendToValidateur(req, res) {
       });
     }
 
-    // FIFO : vérifier si le validateur a déjà un dossier actif
-    const activeValDossier = await hasActiveDossier(id_validateur, "Validateur");
-    const valTimerIsActive = !activeValDossier;
+    // FIFO : le dossier ne démarre son chrono que si la file du validateur
+    // est vide (aucun dossier actif ni en attente).
+    const pendingValDossier = await hasPendingDossier(
+      id_validateur,
+      "Validateur",
+    );
+    const valTimerIsActive = !pendingValDossier;
 
     await db.query(
       `UPDATE dossier SET
          id_validateur = $1,
          commentaire = COALESCE($2, commentaire),
          statut = 'EN_VALIDATION',
-         assigned_validation_at = ${valTimerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+         assigned_validation_at = ${valTimerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
          deadline_valid_elapsed_sec = 0,
          deadline_valid_paused_at = NULL,
          updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
       [id_validateur, commentaire || null, dossier.id],
     );
+
+    // Pile FIFO du validateur : 1er dossier = 12h, puis +3h/+12h par dossier.
+    await joinPileDeadline({
+      userId: Number(id_validateur),
+      role: "Validateur",
+      nCompte: dossier.n_compte,
+      dossierId: dossier.id,
+      excludeDossierId: dossier.id,
+    });
 
     await db.query(
       `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
@@ -1132,16 +1230,23 @@ async function sendToValidateur(req, res) {
 
     // FIFO : démarrer le timer du dossier suivant en file d'attente
     if (dossier.id_verificateur) {
-      const nextId = await startNextQueuedTimer(dossier.id_verificateur, "Verificateur");
+      const nextId = await startNextQueuedTimer(
+        dossier.id_verificateur,
+        "Verificateur",
+      );
       if (nextId) {
         const nextDossier = await getDossierOr404(nextId);
-        emitToUser(Number(dossier.id_verificateur), "dossier:update", { dossier: nextDossier });
+        emitToUser(Number(dossier.id_verificateur), "dossier:update", {
+          dossier: nextDossier,
+        });
       }
     }
 
     // WebSocket : notifier le validateur
     const updatedDossier = await getDossierOr404(dossier.id);
-    emitToUser(Number(id_validateur), "dossier:update", { dossier: updatedDossier });
+    emitToUser(Number(id_validateur), "dossier:update", {
+      dossier: updatedDossier,
+    });
     emitToAdmins("dossier:update", { dossier: updatedDossier });
 
     res.json(updatedDossier);
@@ -1273,16 +1378,24 @@ async function decide(req, res) {
 
     // FIFO : démarrer le timer du dossier suivant en file d'attente
     if (dossier.id_validateur) {
-      const nextValId = await startNextQueuedTimer(dossier.id_validateur, "Validateur");
+      const nextValId = await startNextQueuedTimer(
+        dossier.id_validateur,
+        "Validateur",
+      );
       if (nextValId) {
         const nextValDossier = await getDossierOr404(nextValId);
-        emitToUser(Number(dossier.id_validateur), "dossier:update", { dossier: nextValDossier });
+        emitToUser(Number(dossier.id_validateur), "dossier:update", {
+          dossier: nextValDossier,
+        });
       }
     }
 
     // WebSocket : notifier
     const decidedDossier = await getDossierOr404(dossier.id);
-    if (dossier.id_dispatch) emitToUser(dossier.id_dispatch, "dossier:update", { dossier: decidedDossier });
+    if (dossier.id_dispatch)
+      emitToUser(dossier.id_dispatch, "dossier:update", {
+        dossier: decidedDossier,
+      });
     emitToAdmins("dossier:update", { dossier: decidedDossier });
 
     // Retour au dispatch + notification
@@ -1353,7 +1466,8 @@ async function adminAction(req, res) {
 
       if (verifId && (await isUserOnConge(verifId))) {
         return res.status(400).json({
-          error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+          error:
+            "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
         });
       }
 
@@ -1369,7 +1483,7 @@ async function adminAction(req, res) {
             commentaire = $1,
             statut = 'EN_VERIFICATION',
             id_verificateur = COALESCE($2, id_verificateur),
-            assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+            assigned_verification_at = ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
             assigned_validation_at = NULL,
             deadline_verif_elapsed_sec = 0,
             deadline_verif_paused_at = NULL,
@@ -1380,6 +1494,17 @@ async function adminAction(req, res) {
         `,
         [commentaire, verifId, dossier.id],
       );
+
+      // Pile FIFO du vérificateur.
+      if (verifId) {
+        await joinPileDeadline({
+          userId: Number(verifId),
+          role: "Verificateur",
+          nCompte: dossier.n_compte,
+          dossierId: dossier.id,
+          excludeDossierId: dossier.id,
+        });
+      }
 
       await db.query(
         `
@@ -1659,13 +1784,17 @@ async function reuploadVersion(req, res) {
     // Interdire l'envoi à un vérificateur en congé
     if (await isUserOnConge(verifierId)) {
       return res.status(400).json({
-        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+        error:
+          "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
       });
     }
 
     // FIFO : le dossier revalidé rejoint la FIN de la file du vérificateur.
     // Son timer ne démarre que si la file est vide (aucun dossier actif ni en attente).
-    const timerIsActive = !(await hasPendingDossier(verifierId, "Verificateur"));
+    const timerIsActive = !(await hasPendingDossier(
+      verifierId,
+      "Verificateur",
+    ));
 
     // ============================================================
     // 9. Calcul de la nouvelle version
@@ -1745,7 +1874,7 @@ async function reuploadVersion(req, res) {
         validation = FALSE,
         rejet = FALSE,
 
-        assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+        assigned_verification_at = ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
         assigned_validation_at = NULL,
         deadline_verif_elapsed_sec = 0,
         deadline_verif_paused_at = NULL,
@@ -1773,6 +1902,15 @@ async function reuploadVersion(req, res) {
     );
 
     const updatedDossier = rows[0];
+
+    // Pile FIFO du vérificateur : le dossier revalidé rejoint la pile.
+    await joinPileDeadline({
+      userId: Number(verifierId),
+      role: "Verificateur",
+      nCompte: updatedDossier.n_compte,
+      dossierId: updatedDossier.id,
+      excludeDossierId: updatedDossier.id,
+    });
 
     // ============================================================
     // 15. Historique du traitement
@@ -1870,6 +2008,197 @@ async function reuploadVersion(req, res) {
 
     res.status(500).json({
       error: "Erreur lors de l'import de la nouvelle version",
+    });
+  }
+}
+
+/**
+ * Remplacer le fichier PDF d'un dossier après édition dans la visionneuse
+ * (suppression / déplacement de pages).
+ *
+ * Rôles :
+ * - Verificateur : peut DÉPLACER des pages uniquement
+ * - Validateur / Admin / super_admin : peuvent SUPPRIMER et DÉPLACER des pages
+ */
+async function replaceFile(req, res) {
+  let tempFilePath = null;
+  let finalFilePath = null;
+
+  try {
+    // ============================================================
+    // 1. Vérification du rôle et de l'action
+    // ============================================================
+    const action = String(req.body?.action || "move");
+    const actions = action.split(",").map((a) => a.trim());
+    const wantsDelete = actions.includes("delete");
+
+    if (req.user.role === "Verificateur" && wantsDelete) {
+      return res.status(403).json({
+        error: "Le vérificateur ne peut que déplacer des pages, pas en supprimer.",
+      });
+    }
+
+    if (
+      !["Verificateur", "Validateur", "Admin", "super_admin"].includes(
+        req.user.role,
+      )
+    ) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // ============================================================
+    // 2. Récupération du dossier
+    // ============================================================
+    const dossier = await getDossierOr404(req.params.id);
+
+    if (!dossier) {
+      return res.status(404).json({ error: "Dossier introuvable" });
+    }
+
+    if (!canSeeDossier(req.user, dossier)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // ============================================================
+    // 3. Vérification du fichier
+    // ============================================================
+    if (!req.file) {
+      return res.status(400).json({ error: "Le fichier PDF modifié est requis" });
+    }
+
+    const ext = path.extname(req.file.originalname).toLowerCase();
+
+    if (ext !== ".pdf") {
+      return res.status(400).json({ error: "Le fichier doit être un PDF" });
+    }
+
+    tempFilePath = path.join(uploadDir, req.file.filename);
+
+    // ============================================================
+    // 4. Nom du nouveau fichier (version incrémentée)
+    // ============================================================
+    const newVersion = Number(dossier.version || 1) + 1;
+    const baseName = (dossier.nom || `dossier_${dossier.id}`)
+      .replace(/\(\d+\)$/, "")
+      .trim();
+    const versionedName = `${baseName}(${newVersion})`;
+    const finalFileName = `${versionedName}.pdf`;
+
+    finalFilePath = path.join(uploadDir, finalFileName);
+
+    if (fs.existsSync(finalFilePath)) {
+      return res.status(409).json({
+        error: `Le fichier "${finalFileName}" existe déjà.`,
+      });
+    }
+
+    // ============================================================
+    // 5. Déplacement du fichier temporaire
+    // ============================================================
+    await fs.promises.rename(tempFilePath, finalFilePath);
+    tempFilePath = null;
+
+    const client = await db.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Ancienne version → historique
+      await saveCurrentVersionToHistory(client, dossier);
+
+      // Nouvelle version → fichier courant
+      await client.query(
+        `UPDATE dossier
+         SET fichier_original = $1,
+             version = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [finalFileName, newVersion, dossier.id],
+      );
+
+      await client.query(
+        `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
+         VALUES ($1, $2, $3, TRUE)
+         ON CONFLICT (id_dossier, version)
+         DO UPDATE SET fichier_original = EXCLUDED.fichier_original, est_actuelle = TRUE`,
+        [dossier.id, newVersion, finalFileName],
+      );
+
+      // Historique du traitement
+      const label = wantsDelete
+        ? `PDF modifié (suppression et/ou déplacement de pages, version ${newVersion})`
+        : `PDF modifié (déplacement de pages, version ${newVersion})`;
+
+      await client.query(
+        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+         VALUES ($1, $2, 'VERIFICATION', $3, $4)`,
+        [req.user.id, dossier.id, label, dossier.statut],
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // ============================================================
+    // 6. Audit
+    // ============================================================
+    await audit({
+      id_user: req.user.id,
+      action: "REPLACE_FILE",
+      table_name: "dossier",
+      record_id: dossier.id,
+      details: {
+        actions: actions,
+        ancienne_version: dossier.version,
+        nouvelle_version: newVersion,
+        ancien_fichier: dossier.fichier_original,
+        nouveau_fichier: finalFileName,
+      },
+      ip_address: req.ip,
+    });
+
+    // ============================================================
+    // 7. Notification
+    // ============================================================
+    await notifyAllAdmins({
+      id_dossier: dossier.id,
+      message: `Le fichier du dossier « ${dossier.nom} » a été modifié (pages réorganisées) par ${req.user.prenoms} ${req.user.nom}`,
+      type: "DOSSIER",
+    });
+
+    // ============================================================
+    // 8. Retour
+    // ============================================================
+    res.json(await getDossierOr404(dossier.id));
+  } catch (err) {
+    console.error("Erreur replaceFile :", err);
+
+    if (tempFilePath) {
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          await fs.promises.unlink(tempFilePath);
+        }
+      } catch (cleanupError) {
+        console.error("Erreur nettoyage fichier temporaire :", cleanupError);
+      }
+    }
+
+    if (finalFilePath) {
+      try {
+        if (fs.existsSync(finalFilePath)) {
+          await fs.promises.unlink(finalFilePath);
+        }
+      } catch (cleanupError) {
+        console.error("Erreur nettoyage fichier final :", cleanupError);
+      }
+    }
+
+    res.status(500).json({
+      error: "Erreur lors de l'enregistrement du fichier modifié",
     });
   }
 }
@@ -2067,10 +2396,10 @@ async function exportDossier(req, res) {
       commentairePdf.fillColor("black").font("Helvetica");
     }
 
-    commentairePdf.text(`Compte PC : ${dossier.compte_pc || "-"}`);
+    commentairePdf.text(`Compte Prise en charge : ${dossier.compte_pc || "-"}`);
 
     commentairePdf.text(
-      `Date fin du dossier : ${formatHumanDate(dossier.date_fin_dossier)}`,
+      `Date d'écriture : ${formatHumanDate(dossier.date_fin_dossier)}`,
     );
 
     commentairePdf.text(
@@ -2277,7 +2606,9 @@ async function previewVersion(req, res) {
 
     const filePath = path.join(uploadDir, fichier);
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: "Fichier introuvable sur le serveur" });
+      return res
+        .status(404)
+        .json({ error: "Fichier introuvable sur le serveur" });
     }
 
     const ext = path.extname(fichier).toLowerCase();
@@ -2505,13 +2836,17 @@ async function deleteOldLinked(req, res) {
     if (!dossier) return res.status(404).json({ error: "Dossier introuvable" });
 
     if (!dossier.dossier_lie_id_ref) {
-      return res.status(400).json({ error: "Ce dossier n'a pas de dossier lié." });
+      return res
+        .status(400)
+        .json({ error: "Ce dossier n'a pas de dossier lié." });
     }
 
     const oldDossierId = dossier.dossier_lie_id_ref;
     const oldDossier = await getDossierOr404(oldDossierId);
     if (!oldDossier) {
-      return res.status(404).json({ error: "L'ancien dossier est introuvable." });
+      return res
+        .status(404)
+        .json({ error: "L'ancien dossier est introuvable." });
     }
 
     const client = await db.connect();
@@ -2519,13 +2854,19 @@ async function deleteOldLinked(req, res) {
       await client.query("BEGIN");
 
       // Supprimer les traitements de l'ancien dossier
-      await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [oldDossierId]);
+      await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [
+        oldDossierId,
+      ]);
 
       // Supprimer les notifications liées
-      await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [oldDossierId]);
+      await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [
+        oldDossierId,
+      ]);
 
       // Supprimer les versions
-      await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [oldDossierId]);
+      await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [
+        oldDossierId,
+      ]);
 
       // Supprimer le dossier lui-même
       await client.query(`DELETE FROM dossier WHERE id = $1`, [oldDossierId]);
@@ -2566,7 +2907,9 @@ async function deleteOldLinked(req, res) {
 async function deleteDossier(req, res) {
   try {
     if (!["Admin", "super_admin"].includes(req.user.role)) {
-      return res.status(403).json({ error: "Réservé à l'Admin ou au super_admin" });
+      return res
+        .status(403)
+        .json({ error: "Réservé à l'Admin ou au super_admin" });
     }
 
     const dossier = await getDossierOr404(req.params.id);
@@ -2574,7 +2917,9 @@ async function deleteDossier(req, res) {
 
     // Seuls les dossiers REJETE peuvent être supprimés
     if (dossier.statut !== "REJETE") {
-      return res.status(400).json({ error: "Seul un dossier rejeté peut être supprimé." });
+      return res
+        .status(400)
+        .json({ error: "Seul un dossier rejeté peut être supprimé." });
     }
 
     const client = await db.connect();
@@ -2582,13 +2927,19 @@ async function deleteDossier(req, res) {
       await client.query("BEGIN");
 
       // Supprimer les notifications liées
-      await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [dossier.id]);
+      await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [
+        dossier.id,
+      ]);
 
       // Supprimer les traitements
-      await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [dossier.id]);
+      await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [
+        dossier.id,
+      ]);
 
       // Supprimer les versions
-      await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [dossier.id]);
+      await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [
+        dossier.id,
+      ]);
 
       // Supprimer le fichier physique
       if (dossier.fichier_original) {
@@ -2638,6 +2989,7 @@ module.exports = {
   adminAction,
   returnToDispatch,
   reuploadVersion,
+  replaceFile,
   exportDossier,
   formatHumanDate,
   downloadFile,
