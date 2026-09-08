@@ -5,11 +5,11 @@
 <script setup>
 import { onMounted } from 'vue'
 import { useAuthStore } from 'stores/auth'
-import { useInactivityLogout } from 'src/composables/useInactivityLogout'
 import { usePresence } from 'src/composables/usePresence'
 
 const auth = useAuthStore()
-useInactivityLogout()
+// Pas de déconnexion automatique : la session ne doit jamais expirer,
+// même après une longue inactivité.
 usePresence()
 
 onMounted(() => {

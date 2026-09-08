@@ -4,9 +4,9 @@ const db = require("../config/db");
 const { audit } = require("../services/helpers");
 
 function signToken(userId) {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || "24h",
-  });
+  // Session SANS expiration : l'utilisateur ne doit jamais être déconnecté
+  // automatiquement, même après une longue inactivité.
+  return jwt.sign({ userId }, process.env.JWT_SECRET);
 }
 
 function publicUser(row) {

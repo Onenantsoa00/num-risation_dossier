@@ -251,13 +251,13 @@ async function archiveDossier(req, res) {
     // --------------------------------------------------------
     if (!compte_pc?.trim()) {
       return res.status(400).json({
-        error: "Le compte PC est obligatoire.",
+        error: "Le compte Prise en charge est obligatoire.",
       });
     }
 
     if (!date_fin_dossier) {
       return res.status(400).json({
-        error: "La date de fin du dossier est obligatoire.",
+        error: "La date d'écriture est obligatoire.",
       });
     }
 
@@ -474,7 +474,7 @@ async function quickArchive(req, res) {
 
     if (!compte_pc?.trim()) {
       return res.status(400).json({
-        error: "Le compte PC est obligatoire.",
+        error: "Le compte Prise en charge est obligatoire.",
       });
     }
 

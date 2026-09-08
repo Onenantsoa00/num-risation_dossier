@@ -172,7 +172,9 @@
             <template v-if="dossier?.id_validateur && existingValidateurLabel">
               <q-banner class="bg-blue-1 text-blue-10 q-mb-md" rounded>
                 <template #avatar><q-icon name="verified" /></template>
-                <div class="text-weight-medium">{{ existingValidateurLabel }}</div>
+                <div class="text-weight-medium">
+                  {{ existingValidateurLabel }}
+                </div>
                 <div class="text-caption">Validateur déjà assigné</div>
               </q-banner>
 
@@ -217,15 +219,29 @@
                 class="q-mb-sm"
               >
                 <template #option="scope">
-                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                  <q-item
+                    v-bind="scope.itemProps"
+                    :disable="scope.opt.en_conge"
+                  >
                     <q-item-section avatar>
-                      <q-avatar size="42px" :color="scope.opt.en_conge ? 'grey-4' : 'primary'" text-color="white">
-                        <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display = 'none'" />
+                      <q-avatar
+                        size="42px"
+                        :color="scope.opt.en_conge ? 'grey-4' : 'primary'"
+                        text-color="white"
+                      >
+                        <img
+                          v-if="scope.opt.image"
+                          :src="scope.opt.image"
+                          alt="Photo"
+                          @error="$event.target.style.display = 'none'"
+                        />
                         <span v-else>{{ initials(scope.opt) }}</span>
                       </q-avatar>
                     </q-item-section>
                     <q-item-section>
-                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                      <q-item-label
+                        :class="{ 'text-grey-5': scope.opt.en_conge }"
+                      >
                         {{ scope.opt.label }}
                         <q-badge
                           v-if="scope.opt.en_conge"
@@ -234,14 +250,21 @@
                           label="En congé"
                         />
                       </q-item-label>
-                      <q-item-label caption>IM : {{ scope.opt.im || "—" }}</q-item-label>
+                      <q-item-label caption
+                        >IM : {{ scope.opt.im || "—" }}</q-item-label
+                      >
                     </q-item-section>
                   </q-item>
                 </template>
                 <template #selected-item="scope">
                   <q-chip dense class="q-ma-none">
                     <q-avatar size="28px" color="primary" text-color="white">
-                      <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display = 'none'" />
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                        @error="$event.target.style.display = 'none'"
+                      />
                       <span v-else>{{ initials(scope.opt) }}</span>
                     </q-avatar>
                     {{ scope.opt.label }}
@@ -333,8 +356,11 @@
                     </q-item-label>
 
                     <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
-                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
+                      IM : {{ scope.opt.im || "—" }} —
+                      {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative">
+                        — En congé</span
+                      >
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -490,7 +516,7 @@
                 <div class="col-12 col-md-3">
                   <q-input
                     v-model="archiveForm.date_fin_dossier"
-                    label="Date fin du dossier *"
+                    label="Date d'écriture *"
                     type="date"
                     outlined
                     dense
@@ -574,9 +600,14 @@
                 class="q-mb-sm"
               >
                 <template #option="scope">
-                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                  <q-item
+                    v-bind="scope.itemProps"
+                    :disable="scope.opt.en_conge"
+                  >
                     <q-item-section>
-                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                      <q-item-label
+                        :class="{ 'text-grey-5': scope.opt.en_conge }"
+                      >
                         {{ scope.opt.label }}
                         <q-badge
                           v-if="scope.opt.en_conge"
@@ -586,7 +617,8 @@
                         />
                       </q-item-label>
                       <q-item-label caption>
-                        IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
+                        IM : {{ scope.opt.im || "—" }} —
+                        {{ scope.opt.nb_dossiers || 0 }} dossier(s)
                       </q-item-label>
                     </q-item-section>
                   </q-item>
@@ -700,20 +732,31 @@
           <!-- =====================================================
                BANNIÈRE FIFO BLOQUÉ
           ===================================================== -->
-          <q-banner v-if="isFifoBlocked" class="bg-orange-1 text-orange-10 q-mb-md" rounded>
+          <q-banner
+            v-if="isFifoBlocked"
+            class="bg-orange-1 text-orange-10 q-mb-md"
+            rounded
+          >
             <template #avatar>
               <q-icon name="lock" size="24px" />
             </template>
             <div class="text-weight-bold">File FIFO — Dossier en attente</div>
             <div class="text-caption q-mt-xs">
-              {{ fifoBlockedError || "Un dossier plus ancien doit être traité en premier. Vous pourrez interagir avec ce dossier une fois le dossier précédent terminé." }}
+              {{
+                fifoBlockedError ||
+                "Un dossier plus ancien doit être traité en premier. Vous pourrez interagir avec ce dossier une fois le dossier précédent terminé."
+              }}
             </div>
           </q-banner>
 
           <!-- =====================================================
                BANNIÈRE DOSSIER LIÉ
           ===================================================== -->
-          <q-banner v-if="dossierLie" class="bg-blue-1 text-blue-10 q-mb-md" rounded>
+          <q-banner
+            v-if="dossierLie"
+            class="bg-blue-1 text-blue-10 q-mb-md"
+            rounded
+          >
             <template #avatar>
               <q-icon name="link" />
             </template>
@@ -810,7 +853,9 @@
 
               <template v-if="showArchiveInfo">
                 <div class="col-6">
-                  <div class="text-caption text-grey-7">Compte PC</div>
+                  <div class="text-caption text-grey-7">
+                    Compte Prise en charge
+                  </div>
 
                   <div class="text-body2 text-weight-medium">
                     {{ dossier.compte_pc || "—" }}
@@ -818,9 +863,7 @@
                 </div>
 
                 <div class="col-6">
-                  <div class="text-caption text-grey-7">
-                    Date fin du dossier
-                  </div>
+                  <div class="text-caption text-grey-7">Date d'écriture</div>
 
                   <div class="text-body2 text-weight-medium">
                     {{ formatDateOnly(dossier.date_fin_dossier) }}
@@ -894,7 +937,7 @@
             <!-- Date fin dossier -->
             <q-input
               v-model="archiveForm.date_fin_dossier"
-              label="Date fin du dossier *"
+              label="Date d'écriture *"
               type="date"
               outlined
               class="q-mb-md"
@@ -946,35 +989,39 @@
               emit-value
               map-options
               class="q-mb-sm"
-            >                <template #option="scope">
-                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
-                    <q-item-section>
-                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
-                        {{ scope.opt.label }}
-                        <q-badge
-                          v-if="scope.opt.en_conge"
-                          color="negative"
-                          class="q-ml-xs"
-                          label="En congé"
-                        />
-                      </q-item-label>
-                      <q-item-label caption>
-                        IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
-                      </q-item-label>
-                    </q-item-section>
-                  </q-item>
-                </template>
-              </q-select>
-              <q-btn
-                color="primary"
-                icon="person_add"
-                label="Assigner et envoyer"
-                class="full-width q-mb-md"
-                unelevated
-                :loading="busy"
-                :disable="!idVerificateur"
-                @click="assignVerificateur"
-              />
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                  <q-item-section>
+                    <q-item-label
+                      :class="{ 'text-grey-5': scope.opt.en_conge }"
+                    >
+                      {{ scope.opt.label }}
+                      <q-badge
+                        v-if="scope.opt.en_conge"
+                        color="negative"
+                        class="q-ml-xs"
+                        label="En congé"
+                      />
+                    </q-item-label>
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }} —
+                      {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+            <q-btn
+              color="primary"
+              icon="person_add"
+              label="Assigner et envoyer"
+              class="full-width q-mb-md"
+              unelevated
+              :loading="busy"
+              :disable="!idVerificateur"
+              @click="assignVerificateur"
+            />
           </template>
 
           <!-- =========================
@@ -1027,8 +1074,12 @@
                 <template #avatar>
                   <q-icon name="verified" />
                 </template>
-                <div class="text-weight-medium">{{ existingValidateurLabel }}</div>
-                <div class="text-caption">Validateur déjà assigné à ce dossier</div>
+                <div class="text-weight-medium">
+                  {{ existingValidateurLabel }}
+                </div>
+                <div class="text-caption">
+                  Validateur déjà assigné à ce dossier
+                </div>
               </q-banner>
 
               <div class="row q-gutter-sm q-mb-md">
@@ -1065,10 +1116,18 @@
                 emit-value
                 map-options
                 class="q-mb-sm"
-              >                <template #option="scope">
-                  <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+              >
+                <template #option="scope">
+                  <q-item
+                    v-bind="scope.itemProps"
+                    :disable="scope.opt.en_conge"
+                  >
                     <q-item-section avatar>
-                      <q-avatar size="40px" :color="scope.opt.en_conge ? 'grey-4' : 'primary'" text-color="white">
+                      <q-avatar
+                        size="40px"
+                        :color="scope.opt.en_conge ? 'grey-4' : 'primary'"
+                        text-color="white"
+                      >
                         <img
                           v-if="scope.opt.image"
                           :src="scope.opt.image"
@@ -1080,7 +1139,9 @@
                       </q-avatar>
                     </q-item-section>
                     <q-item-section>
-                      <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                      <q-item-label
+                        :class="{ 'text-grey-5': scope.opt.en_conge }"
+                      >
                         {{ scope.opt.label }}
                         <q-badge
                           v-if="scope.opt.en_conge"
@@ -1090,7 +1151,8 @@
                         />
                       </q-item-label>
                       <q-item-label caption>
-                        IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
+                        IM : {{ scope.opt.im || "—" }} —
+                        {{ scope.opt.nb_dossiers || 0 }} dossier(s)
                       </q-item-label>
                     </q-item-section>
                   </q-item>
@@ -1098,7 +1160,11 @@
                 <template #selected-item="scope">
                   <q-chip dense class="q-ma-none">
                     <q-avatar size="28px">
-                      <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" />
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                      />
                       <span v-else>{{ initials(scope.opt) }}</span>
                     </q-avatar>
                     {{ scope.opt.label }}
@@ -1169,8 +1235,11 @@
                     </q-item-label>
 
                     <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
-                      <span v-if="scope.opt.en_conge" class="text-negative"> — En congé</span>
+                      IM : {{ scope.opt.im || "—" }} —
+                      {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative">
+                        — En congé</span
+                      >
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -1233,7 +1302,12 @@
           <!-- =========================
           ADMIN
           ========================= -->
-          <template v-if="(auth.role === 'Admin' || auth.role === 'super_admin') && !canDecide">
+          <template
+            v-if="
+              (auth.role === 'Admin' || auth.role === 'super_admin') &&
+              !canDecide
+            "
+          >
             <q-separator class="q-mb-md" />
 
             <div class="text-subtitle2 q-mb-sm">
@@ -1261,19 +1335,33 @@
                 <q-item v-bind="scope.itemProps">
                   <q-item-section avatar>
                     <q-avatar size="36px" color="warning" text-color="white">
-                      <img v-if="scope.opt.image" :src="scope.opt.image" alt="Photo" @error="$event.target.style.display='none'" />
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                        @error="$event.target.style.display = 'none'"
+                      />
                       <span v-else>{{ initials(scope.opt) }}</span>
                     </q-avatar>
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>{{ scope.opt.label }}</q-item-label>
-                    <q-item-label caption>IM : {{ scope.opt.im || '—' }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)</q-item-label>
+                    <q-item-label caption
+                      >IM : {{ scope.opt.im || "—" }} —
+                      {{ scope.opt.nb_dossiers || 0 }} dossier(s)</q-item-label
+                    >
                   </q-item-section>
                 </q-item>
               </template>
               <template #selected-item="scope">
                 <q-chip dense class="q-ma-none">
-                  <q-avatar size="28px"><img v-if="scope.opt.image" :src="scope.opt.image" @error="$event.target.style.display='none'" /><span v-else>{{ initials(scope.opt) }}</span></q-avatar>
+                  <q-avatar size="28px"
+                    ><img
+                      v-if="scope.opt.image"
+                      :src="scope.opt.image"
+                      @error="$event.target.style.display = 'none'"
+                    /><span v-else>{{ initials(scope.opt) }}</span></q-avatar
+                  >
                   {{ scope.opt.label }}
                 </q-chip>
               </template>
@@ -1377,8 +1465,8 @@
           <template #avatar>
             <q-icon name="info" />
           </template>
-          Le vérificateur et le validateur précédemment assignés seront conservés.
-          Les anciens commentaires et l'historique seront maintenus.
+          Le vérificateur et le validateur précédemment assignés seront
+          conservés. Les anciens commentaires et l'historique seront maintenus.
         </q-banner>
       </q-card-section>
 
@@ -1458,10 +1546,13 @@ const busy = ref(false);
 const commentaire = ref("");
 const fifoBlockedError = ref("");
 
-const { remainingSec: deadlineRemaining, isPaused: deadlineIsPaused, waiting: deadlineWaiting, label: deadlineLabel, color: deadlineColor } = useDeadlineTimer(
-  dossier,
-  auth,
-);
+const {
+  remainingSec: deadlineRemaining,
+  isPaused: deadlineIsPaused,
+  waiting: deadlineWaiting,
+  label: deadlineLabel,
+  color: deadlineColor,
+} = useDeadlineTimer(dossier, auth);
 const idValidateur = ref(null);
 const validateurs = ref([]);
 const previewUrl = ref(null);
@@ -1541,9 +1632,11 @@ const canComment = computed(() => {
   }
 
   if (["Admin", "super_admin"].includes(auth.role)) {
-    return ["EN_VERIFICATION", "EN_VALIDATION", "EN_ATTENTE_VERIFICATEUR"].includes(
-      dossier.value.statut,
-    );
+    return [
+      "EN_VERIFICATION",
+      "EN_VALIDATION",
+      "EN_ATTENTE_VERIFICATEUR",
+    ].includes(dossier.value.statut);
   }
 
   switch (dossier.value.statut) {
@@ -1695,7 +1788,9 @@ const showChangeValidateur = ref(false);
 /** Label du validateur déjà assigné */
 const existingValidateurLabel = computed(() => {
   if (!dossier.value?.id_validateur) return null;
-  const val = validateurs.value.find((v) => v.value === dossier.value.id_validateur);
+  const val = validateurs.value.find(
+    (v) => v.value === dossier.value.id_validateur,
+  );
   return val ? val.label : null;
 });
 
@@ -2073,7 +2168,11 @@ async function loadValidateurs() {
   const admins = await api.get("/users", {
     params: { role: "Admin", with_stats: 1 },
   });
-  validateurs.value = [...data, ...admins.data].map((u) => ({
+  // Le super_admin peut aussi être désigné validateur
+  const supers = await api.get("/users", {
+    params: { role: "super_admin", with_stats: 1 },
+  });
+  validateurs.value = [...data, ...admins.data, ...supers.data].map((u) => ({
     label: `${u.prenoms} ${u.nom}`,
     value: u.id,
     image: u.image,
@@ -2214,9 +2313,10 @@ async function decide(action, ecraser = false) {
     fifoBlockedError.value = "";
     $q.notify({
       type: action === "valider" ? "positive" : "warning",
-      message: action === "valider"
-        ? "Dossier validé et transmis à l'archivage."
-        : "Dossier rejeté.",
+      message:
+        action === "valider"
+          ? "Dossier validé et transmis à l'archivage."
+          : "Dossier rejeté.",
     });
     idArchiveur.value = null;
     await load();
@@ -2279,7 +2379,10 @@ async function downloadOldVersion() {
     a.click();
     URL.revokeObjectURL(url);
   } catch {
-    $q.notify({ type: "negative", message: "Impossible de télécharger l'ancien fichier." });
+    $q.notify({
+      type: "negative",
+      message: "Impossible de télécharger l'ancien fichier.",
+    });
   }
 }
 

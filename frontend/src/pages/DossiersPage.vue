@@ -78,6 +78,21 @@
             </q-badge>
           </q-td>
         </template>
+        <template #body-cell-deadline_at="props">
+          <q-td :props="props">
+            <div class="row items-center no-wrap" :class="deadlineColorClass(props.row.deadline_color)">
+              <span class="deadline-dot" :style="{ background: deadlineDotColor(props.row.deadline_color) }"></span>
+              <span class="text-weight-medium">{{ formatDeadlineAt(props.row.deadline_at) }}</span>
+            </div>
+          </q-td>
+        </template>
+        <template #body-cell-deadline="props">
+          <q-td :props="props">
+            <span class="text-weight-medium" :class="deadlineColorClass(props.row.deadline_color)">
+              {{ props.row.deadline_remaining_label || "—" }}
+            </span>
+          </q-td>
+        </template>
         <template #body-cell-actions="props">
           <q-td :props="props">
             <q-btn
@@ -138,6 +153,12 @@ const columns = [
   },
   { name: "statut", label: "Statut", field: "statut", align: "left" },
   {
+    name: "deadline_at",
+    label: "Deadline",
+    field: (r) => r.deadline_at || null,
+    align: "left",
+  },
+  {
     name: "deadline",
     label: "Délai",
     field: (r) => r.deadline_remaining_label || "—",
@@ -155,6 +176,41 @@ const columns = [
 function formatDate(d) {
   if (!d) return "-";
   return new Date(d).toLocaleString("fr-FR");
+}
+
+/** Couleurs d'aide visuelle de la deadline (vert / jaune / rouge). */
+function deadlineColorClass(c) {
+  const map = {
+    green: "text-positive",
+    yellow: "text-warning",
+    red: "text-negative",
+    grey: "text-grey-7",
+    waiting: "text-grey-7",
+  };
+  return map[c] || "text-grey-7";
+}
+
+function deadlineDotColor(c) {
+  const map = {
+    green: "#2e7d32",
+    yellow: "#f9a825",
+    red: "#c62828",
+    grey: "#9e9e9e",
+    waiting: "#f9a825",
+  };
+  return map[c] || "#9e9e9e";
+}
+
+function formatDeadlineAt(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("fr-FR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 async function load() {
@@ -197,3 +253,13 @@ function confirmDelete(row) {
 
 onMounted(load);
 </script>
+
+<style scoped>
+.deadline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+</style>

@@ -1,7 +1,9 @@
 <template>
   <div class="auth-bg">
     <div class="auth-panel">
-      <div class="brand-mark q-mb-xs">NUMÉRISATION <span>Dossiers</span></div>
+      <div class="brand-mark q-mb-xs">
+        TRAITEMENT NUMÉRIQUE <span>FCE</span>
+      </div>
       <p class="text-grey-7 q-mb-lg">Connexion à la plateforme de validation</p>
 
       <q-form @submit.prevent="onSubmit" class="q-gutter-md">
@@ -44,7 +46,8 @@
           rounded
           dense
         >
-          Session expirée après 15 minutes d'inactivité. Veuillez vous reconnecter.
+          Session expirée après 15 minutes d'inactivité. Veuillez vous
+          reconnecter.
         </q-banner>
 
         <q-btn

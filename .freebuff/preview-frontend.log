@@ -1,4 +1,4 @@
-(node:21656) ExperimentalWarning: CommonJS module /home/aluka/.nvm/versions/node/v23.1.0/lib/node_modules/npm/node_modules/debug/src/node.js is loading ES Module /home/aluka/.nvm/versions/node/v23.1.0/lib/node_modules/npm/node_modules/supports-color/index.js using require().
+(node:43615) ExperimentalWarning: CommonJS module /home/aluka/.nvm/versions/node/v23.1.0/lib/node_modules/npm/node_modules/debug/src/node.js is loading ES Module /home/aluka/.nvm/versions/node/v23.1.0/lib/node_modules/npm/node_modules/supports-color/index.js using require().
 Support for loading ES Module in require() is an experimental feature and might change at any time
 (Use `node --trace-warnings ...` to show where the warning was created)
 
@@ -15,12 +15,16 @@ Y88b.Y8b88P Y88b 888 888  888      X88 888  888 888
  App • Using quasar.config.js in "esm" format
  App •  TIP  • 🚀  You (or an AE) specified an explicit quasar.config file > devServer > port. It is recommended to use a different devServer > port for each Quasar mode to avoid browser cache issues. Example: ctx.mode.ssr ? 9100 : ...
 
- » Reported at............ 04/09/2026 09:27:31
+ » Reported at............ 07/09/2026 14:56:28
  » App dir................ /media/aluka/Prop_privé/trav_dev/numerisation_dossier/frontend
  » App URL................ http://localhost:9000/
                            http://192.168.137.195:9000/
+                           http://100.94.1.22:9000/
  » Dev mode............... spa
  » Pkg quasar............. v2.24.0
  » Pkg @quasar/app-vite... v2.6.2
  » Browser target......... es2022|firefox115|chrome115|safari14
 
+15:01:47 [vite] http proxy error: /api/users/presence
+Error: connect ECONNREFUSED 127.0.0.1:3000
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1615:16)
