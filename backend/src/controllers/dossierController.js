@@ -2012,6 +2012,197 @@ async function reuploadVersion(req, res) {
   }
 }
 
+/**
+ * Remplacer le fichier PDF d'un dossier après édition dans la visionneuse
+ * (suppression / déplacement de pages).
+ *
+ * Rôles :
+ * - Verificateur : peut DÉPLACER des pages uniquement
+ * - Validateur / Admin / super_admin : peuvent SUPPRIMER et DÉPLACER des pages
+ */
+async function replaceFile(req, res) {
+  let tempFilePath = null;
+  let finalFilePath = null;
+
+  try {
+    // ============================================================
+    // 1. Vérification du rôle et de l'action
+    // ============================================================
+    const action = String(req.body?.action || "move");
+    const actions = action.split(",").map((a) => a.trim());
+    const wantsDelete = actions.includes("delete");
+
+    if (req.user.role === "Verificateur" && wantsDelete) {
+      return res.status(403).json({
+        error: "Le vérificateur ne peut que déplacer des pages, pas en supprimer.",
+      });
+    }
+
+    if (
+      !["Verificateur", "Validateur", "Admin", "super_admin"].includes(
+        req.user.role,
+      )
+    ) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // ============================================================
+    // 2. Récupération du dossier
+    // ============================================================
+    const dossier = await getDossierOr404(req.params.id);
+
+    if (!dossier) {
+      return res.status(404).json({ error: "Dossier introuvable" });
+    }
+
+    if (!canSeeDossier(req.user, dossier)) {
+      return res.status(403).json({ error: "Accès refusé" });
+    }
+
+    // ============================================================
+    // 3. Vérification du fichier
+    // ============================================================
+    if (!req.file) {
+      return res.status(400).json({ error: "Le fichier PDF modifié est requis" });
+    }
+
+    const ext = path.extname(req.file.originalname).toLowerCase();
+
+    if (ext !== ".pdf") {
+      return res.status(400).json({ error: "Le fichier doit être un PDF" });
+    }
+
+    tempFilePath = path.join(uploadDir, req.file.filename);
+
+    // ============================================================
+    // 4. Nom du nouveau fichier (version incrémentée)
+    // ============================================================
+    const newVersion = Number(dossier.version || 1) + 1;
+    const baseName = (dossier.nom || `dossier_${dossier.id}`)
+      .replace(/\(\d+\)$/, "")
+      .trim();
+    const versionedName = `${baseName}(${newVersion})`;
+    const finalFileName = `${versionedName}.pdf`;
+
+    finalFilePath = path.join(uploadDir, finalFileName);
+
+    if (fs.existsSync(finalFilePath)) {
+      return res.status(409).json({
+        error: `Le fichier "${finalFileName}" existe déjà.`,
+      });
+    }
+
+    // ============================================================
+    // 5. Déplacement du fichier temporaire
+    // ============================================================
+    await fs.promises.rename(tempFilePath, finalFilePath);
+    tempFilePath = null;
+
+    const client = await db.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Ancienne version → historique
+      await saveCurrentVersionToHistory(client, dossier);
+
+      // Nouvelle version → fichier courant
+      await client.query(
+        `UPDATE dossier
+         SET fichier_original = $1,
+             version = $2,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [finalFileName, newVersion, dossier.id],
+      );
+
+      await client.query(
+        `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
+         VALUES ($1, $2, $3, TRUE)
+         ON CONFLICT (id_dossier, version)
+         DO UPDATE SET fichier_original = EXCLUDED.fichier_original, est_actuelle = TRUE`,
+        [dossier.id, newVersion, finalFileName],
+      );
+
+      // Historique du traitement
+      const label = wantsDelete
+        ? `PDF modifié (suppression et/ou déplacement de pages, version ${newVersion})`
+        : `PDF modifié (déplacement de pages, version ${newVersion})`;
+
+      await client.query(
+        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+         VALUES ($1, $2, 'VERIFICATION', $3, $4)`,
+        [req.user.id, dossier.id, label, dossier.statut],
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // ============================================================
+    // 6. Audit
+    // ============================================================
+    await audit({
+      id_user: req.user.id,
+      action: "REPLACE_FILE",
+      table_name: "dossier",
+      record_id: dossier.id,
+      details: {
+        actions: actions,
+        ancienne_version: dossier.version,
+        nouvelle_version: newVersion,
+        ancien_fichier: dossier.fichier_original,
+        nouveau_fichier: finalFileName,
+      },
+      ip_address: req.ip,
+    });
+
+    // ============================================================
+    // 7. Notification
+    // ============================================================
+    await notifyAllAdmins({
+      id_dossier: dossier.id,
+      message: `Le fichier du dossier « ${dossier.nom} » a été modifié (pages réorganisées) par ${req.user.prenoms} ${req.user.nom}`,
+      type: "DOSSIER",
+    });
+
+    // ============================================================
+    // 8. Retour
+    // ============================================================
+    res.json(await getDossierOr404(dossier.id));
+  } catch (err) {
+    console.error("Erreur replaceFile :", err);
+
+    if (tempFilePath) {
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          await fs.promises.unlink(tempFilePath);
+        }
+      } catch (cleanupError) {
+        console.error("Erreur nettoyage fichier temporaire :", cleanupError);
+      }
+    }
+
+    if (finalFilePath) {
+      try {
+        if (fs.existsSync(finalFilePath)) {
+          await fs.promises.unlink(finalFilePath);
+        }
+      } catch (cleanupError) {
+        console.error("Erreur nettoyage fichier final :", cleanupError);
+      }
+    }
+
+    res.status(500).json({
+      error: "Erreur lors de l'enregistrement du fichier modifié",
+    });
+  }
+}
+
 async function exportDossier(req, res) {
   try {
     // ============================================================
@@ -2798,6 +2989,7 @@ module.exports = {
   adminAction,
   returnToDispatch,
   reuploadVersion,
+  replaceFile,
   exportDossier,
   formatHumanDate,
   downloadFile,

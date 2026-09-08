@@ -1,6 +1,17 @@
-[Socket] Serveur WebSocket initialisé
-[DeadlineMonitor] Surveillance des deadlines démarrée (vérification toutes les 60s)
-API ORDSEC démarrée sur http://0.0.0.0:3000
-[Socket] Utilisateur 1 Admin connecté (id=1, sid=51_Z-kLKoTSH6UXKAAAB)
-[Socket] Utilisateur 1 Admin déconnecté (sid=51_Z-kLKoTSH6UXKAAAB)
-[Socket] Timer déconnexion douce démarré pour user 1 (30000ms)
+/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/route.js:216
+        throw new Error(msg);
+        ^
+
+Error: Route.post() requires a callback function but got a [object Undefined]
+    at Route.<computed> [as post] (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/route.js:216:15)
+    at proto.<computed> [as post] (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/node_modules/express/lib/router/index.js:521:19)
+    at Object.<anonymous> (/media/aluka/Prop_privé/trav_dev/numerisation_dossier/backend/src/routes/dossiers.js:35:8)
+    at Module._compile (node:internal/modules/cjs/loader:1572:14)
+    at Object..js (node:internal/modules/cjs/loader:1709:10)
+    at Module.load (node:internal/modules/cjs/loader:1315:32)
+    at Function._load (node:internal/modules/cjs/loader:1125:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:216:24)
+    at Module.require (node:internal/modules/cjs/loader:1337:12)
+
+Node.js v23.1.0

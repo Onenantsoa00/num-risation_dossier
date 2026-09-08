@@ -32,6 +32,12 @@ router.post(
   upload.single("fichier"),
   dossierCtrl.reuploadVersion,
 );
+router.post(
+  "/:id/replace-file",
+  authorize("Verificateur", "Validateur"),
+  upload.single("fichier"),
+  dossierCtrl.replaceFile,
+);
 router.get("/:id", dossierCtrl.getOne);
 router.post("/:id/comment", dossierCtrl.comment);
 router.post(

@@ -50,8 +50,11 @@
                 :remote-name="dossier.fichier_original"
                 :loading="previewLoading"
                 can-download
+                :dossier-id="props.dossierId"
+                :role="auth.role"
                 @download="downloadFile"
                 @fullscreen="onDocumentFullscreen"
+                @saved="handlePdfSaved"
               />
             </div>
             <div class="dossier-lie-footer">
@@ -87,8 +90,11 @@
           :remote-name="dossier.fichier_original"
           :loading="previewLoading"
           can-download
+          :dossier-id="props.dossierId"
+          :role="auth.role"
           @download="downloadFile"
           @fullscreen="onDocumentFullscreen"
+          @saved="handlePdfSaved"
         />
       </template>
 
@@ -2159,6 +2165,11 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+/** Le PDF a été modifié (pages supprimées/déplacées) → recharger le dossier */
+async function handlePdfSaved() {
+  await load();
 }
 
 async function loadValidateurs() {
