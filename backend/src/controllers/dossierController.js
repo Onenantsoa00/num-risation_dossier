@@ -292,14 +292,27 @@ async function list(req, res) {
 
     let orderBy = "ORDER BY d.updated_at DESC";
     if (req.user.role === "Verificateur") {
-      orderBy =
-        "ORDER BY d.assigned_verification_at ASC NULLS LAST, d.updated_at ASC";
+      orderBy = `ORDER BY
+        CASE WHEN d.statut = 'EN_VERIFICATION' THEN 0 ELSE 1 END,
+        d.assigned_verification_at ASC NULLS LAST,
+        d.updated_at ASC`;
     } else if (req.user.role === "Validateur") {
-      orderBy =
-        "ORDER BY d.assigned_validation_at ASC NULLS LAST, d.updated_at ASC";
+      orderBy = `ORDER BY
+        CASE WHEN d.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
+        d.assigned_validation_at ASC NULLS LAST,
+        d.updated_at ASC`;
     } else if (["Admin", "super_admin"].includes(req.user.role)) {
-      orderBy =
-        "ORDER BY CASE WHEN d.statut = 'EN_ATTENTE_VERIFICATEUR' THEN 0 ELSE 1 END, d.updated_at DESC";
+      params.push(req.user.id);
+      const uidParam = `$${i}`;
+      orderBy = `ORDER BY
+        CASE
+          WHEN (d.statut = 'EN_VERIFICATION' AND d.id_verificateur = ${uidParam})
+            OR (d.statut = 'EN_VALIDATION' AND d.id_validateur = ${uidParam})
+          THEN 0
+          ELSE 1
+        END,
+        COALESCE(d.assigned_verification_at, d.assigned_validation_at) ASC NULLS LAST,
+        d.updated_at DESC`;
     }
 
     const { rows } = await db.query(
@@ -310,6 +323,29 @@ async function list(req, res) {
     const enriched = await Promise.all(
       rows.map((d) => enrichDossierWithDeadline(d, req.user.id, req.user.role)),
     );
+
+    if (
+      ["Verificateur", "Validateur", "Admin", "super_admin"].includes(
+        req.user.role,
+      )
+    ) {
+      let markedCurrent = false;
+      for (const d of enriched) {
+        const mineVerif =
+          d.statut === "EN_VERIFICATION" &&
+          d.id_verificateur === req.user.id;
+        const mineValid =
+          d.statut === "EN_VALIDATION" && d.id_validateur === req.user.id;
+        if (mineVerif || mineValid) {
+          d.in_fifo = true;
+          if (!markedCurrent) {
+            d.a_traiter = true;
+            markedCurrent = true;
+          }
+        }
+      }
+    }
+
     res.json(enriched);
   } catch (err) {
     console.error(err);

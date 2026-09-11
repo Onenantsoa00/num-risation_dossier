@@ -132,7 +132,7 @@ async function countAssignedDossiers(userId, role) {
   if (role === "Verificateur") {
     const { rows } = await db.query(
       `SELECT COUNT(*)::int AS count FROM dossier
-       WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'`,
+       WHERE id_verificateur = $1 AND statut IN ('EN_VERIFICATION', 'RETOUR_DISPATCH')`,
       [userId],
     );
     return rows[0].count;
@@ -140,7 +140,26 @@ async function countAssignedDossiers(userId, role) {
   if (role === "Validateur") {
     const { rows } = await db.query(
       `SELECT COUNT(*)::int AS count FROM dossier
-       WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'`,
+       WHERE id_validateur = $1 AND statut IN ('EN_VALIDATION', 'RETOUR_DISPATCH')`,
+      [userId],
+    );
+    return rows[0].count;
+  }
+  if (role === "Admin") {
+    // Admin peut être assigné pour vérification ET validation
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM dossier
+       WHERE (id_verificateur = $1 OR id_validateur = $1) 
+         AND statut IN ('EN_VERIFICATION', 'EN_VALIDATION', 'RETOUR_DISPATCH')`,
+      [userId],
+    );
+    return rows[0].count;
+  }
+  if (role === "super_admin") {
+    // super_admin gère la validation
+    const { rows } = await db.query(
+      `SELECT COUNT(*)::int AS count FROM dossier
+       WHERE id_validateur = $1 AND statut IN ('EN_VALIDATION', 'RETOUR_DISPATCH')`,
       [userId],
     );
     return rows[0].count;
@@ -220,14 +239,14 @@ async function startNextQueuedTimer(userId, role) {
            WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'
              AND assigned_verification_at IS NULL
            ORDER BY updated_at ASC LIMIT 1`;
-    updateCol = 'assigned_verification_at';
+    updateCol = "assigned_verification_at";
     params = [userId];
   } else if (role === "Validateur") {
     sql = `SELECT id FROM dossier
            WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'
              AND assigned_validation_at IS NULL
            ORDER BY updated_at ASC LIMIT 1`;
-    updateCol = 'assigned_validation_at';
+    updateCol = "assigned_validation_at";
     params = [userId];
   } else {
     return null;

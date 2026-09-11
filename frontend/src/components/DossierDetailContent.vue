@@ -184,35 +184,23 @@
                 <div class="text-caption">Validateur déjà assigné</div>
               </q-banner>
 
-              <div class="row q-col-gutter-md">
-                <div class="col-12 col-md-6">
-                  <q-btn
-                    color="warning"
-                    text-color="white"
-                    label="Envoyer à ce validateur"
-                    icon="send"
-                    class="full-width"
-                    unelevated
-                    :loading="busy"
-                    :disable="!commentaire.trim()"
-                    @click="sendToExistingValidateur"
-                  />
-                </div>
-                <div class="col-12 col-md-6">
-                  <q-btn
-                    flat
-                    color="grey"
-                    label="Changer de validateur"
-                    icon="swap_horiz"
-                    class="full-width"
-                    @click="showChangeValidateur = true"
-                  />
-                </div>
+              <div class="col-12 col-md-6">
+                <q-btn
+                  color="warning"
+                  text-color="white"
+                  label="Envoyer à ce validateur"
+                  icon="send"
+                  class="full-width"
+                  unelevated
+                  :loading="busy"
+                  :disable="!commentaire.trim()"
+                  @click="sendToExistingValidateur"
+                />
               </div>
             </template>
 
             <!-- Sélecteur de validateur (si aucun assigné ou changement demandé) -->
-            <template v-if="!dossier?.id_validateur || showChangeValidateur">
+            <template v-if="!dossier?.id_validateur">
               <q-select
                 v-model="idValidateur"
                 :options="filteredValidateurs"
@@ -652,13 +640,14 @@
             <div class="row q-col-gutter-md">
               <div class="col-12 col-md-4">
                 <q-btn
-                  color="info"
-                  icon="fact_check"
-                  label="Vérifier"
+                  color="warning"
+                  icon="undo"
+                  label="Retour Dispatch"
                   class="full-width"
                   unelevated
+                  :loading="busy"
                   :disable="!commentaire.trim()"
-                  @click="adminAction('verifier')"
+                  @click="retourDispatch()"
                 />
               </div>
 
@@ -1110,19 +1099,11 @@
                   :disable="!commentaire.trim()"
                   @click="sendToExistingValidateur"
                 />
-                <q-btn
-                  flat
-                  color="grey"
-                  label="Changer"
-                  icon="swap_horiz"
-                  class="col-auto"
-                  @click="showChangeValidateur = true"
-                />
               </div>
             </template>
 
             <!-- Sélecteur de validateur (si aucun assigné ou si l'utilisateur veut changer) -->
-            <template v-if="!dossier?.id_validateur || showChangeValidateur">
+            <template v-if="!dossier?.id_validateur">
               <q-select
                 v-model="idValidateur"
                 :options="filteredValidateurs"
@@ -1390,12 +1371,13 @@
 
             <div class="row q-gutter-sm">
               <q-btn
-                color="info"
-                label="Vérifier"
+                color="warning"
+                label="Retour Dispatch"
                 class="col"
                 unelevated
+                :loading="busy"
                 :disable="!commentaire.trim()"
-                @click="adminAction('verifier')"
+                @click="retourDispatch()"
               />
 
               <q-btn
@@ -1534,7 +1516,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
@@ -1547,6 +1529,11 @@ import DossierTimer from "components/DossierTimer.vue";
 import { getSocket } from "boot/socket";
 
 const route = useRoute();
+const router = useRouter();
+
+function goToDossiersList() {
+  router.push({ name: "dossiers" });
+}
 
 const isFromArchives = computed(() => {
   return route.query.from === "archives";
@@ -1809,8 +1796,6 @@ const canSendToValidateur = computed(() => {
   );
 });
 
-const showChangeValidateur = ref(false);
-
 /** Label du validateur déjà assigné */
 const existingValidateurLabel = computed(() => {
   if (!dossier.value?.id_validateur) return null;
@@ -1832,6 +1817,8 @@ async function sendToExistingValidateur() {
     fifoBlockedError.value = "";
     $q.notify({ type: "positive", message: "Dossier transmis au validateur" });
     await load();
+    // Retour à la liste après transmission
+    goToDossiersList();
   } catch (e) {
     handleActionError(e);
   } finally {
@@ -2225,7 +2212,7 @@ function filterValidateurs(val, update) {
   update(() => {
     const needle = val.toLowerCase();
     filteredValidateurs.value = validateurs.value.filter(
-      (v) => v.label.toLowerCase().indexOf(needle) > -1
+      (v) => v.label.toLowerCase().indexOf(needle) > -1,
     );
   });
 }
@@ -2234,7 +2221,7 @@ function filterVerificateurs(val, update) {
   update(() => {
     const needle = val.toLowerCase();
     filteredVerificateurs.value = verificateurs.value.filter(
-      (v) => v.label.toLowerCase().indexOf(needle) > -1
+      (v) => v.label.toLowerCase().indexOf(needle) > -1,
     );
   });
 }
@@ -2243,7 +2230,7 @@ function filterArchiveurs(val, update) {
   update(() => {
     const needle = val.toLowerCase();
     filteredArchiveurs.value = archiveurs.value.filter(
-      (v) => v.label.toLowerCase().indexOf(needle) > -1
+      (v) => v.label.toLowerCase().indexOf(needle) > -1,
     );
   });
 }
@@ -2291,6 +2278,8 @@ async function sendValidateur() {
     fifoBlockedError.value = "";
     $q.notify({ type: "positive", message: "Transmis au validateur" });
     await load();
+    // Retour à la liste après transmission
+    goToDossiersList();
   } catch (e) {
     handleActionError(e);
   } finally {
@@ -2379,6 +2368,8 @@ async function decide(action, ecraser = false) {
     });
     idArchiveur.value = null;
     await load();
+    // Retour à la liste après validation/rejet
+    goToDossiersList();
   } catch (e) {
     handleActionError(e);
   } finally {
@@ -2396,6 +2387,8 @@ async function retourDispatch(ecraser = false) {
     fifoBlockedError.value = "";
     $q.notify({ type: "info", message: "Retour Dispatch" });
     await load();
+    // Après retour dispatch, revenir à la liste
+    goToDossiersList();
   } catch (e) {
     handleActionError(e);
   } finally {

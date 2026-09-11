@@ -4,7 +4,10 @@ const db = require("../config/db");
 const { publicUser } = require("./authController");
 const { audit } = require("../services/helpers");
 const { getPresenceList, updatePresence } = require("../services/presence");
-const { countAssignedDossiers, isUserOnConge } = require("../services/dossierWorkflow");
+const {
+  countAssignedDossiers,
+  isUserOnConge,
+} = require("../services/dossierWorkflow");
 const { getTodayDateStr } = require("../services/deadline");
 
 async function listRoles(_req, res) {
@@ -248,7 +251,12 @@ async function listUsers(req, res) {
         today <= u.conge_fin,
     }));
 
-    if (with_stats === "1" || with_stats === "true") {
+    if (
+      with_stats == "1" ||
+      with_stats == "true" ||
+      with_stats === 1 ||
+      with_stats === true
+    ) {
       result = await Promise.all(
         result.map(async (u) => ({
           ...u,
@@ -518,7 +526,8 @@ async function setConge(req, res) {
 
     if (conge_fin < conge_debut) {
       return res.status(400).json({
-        error: "La date de fin doit être postérieure ou égale à la date de début.",
+        error:
+          "La date de fin doit être postérieure ou égale à la date de début.",
       });
     }
 
@@ -578,7 +587,13 @@ async function clearConge(req, res) {
 async function heartbeat(req, res) {
   try {
     const { status, dossier_id } = req.body;
-    const validStatuses = ["online", "typing", "viewing", "scrolling", "offline"];
+    const validStatuses = [
+      "online",
+      "typing",
+      "viewing",
+      "scrolling",
+      "offline",
+    ];
     const presenceStatus = validStatuses.includes(status) ? status : "online";
 
     await updatePresence(req.user.id, presenceStatus, dossier_id || null);

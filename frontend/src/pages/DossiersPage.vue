@@ -8,7 +8,10 @@
         </div>
         <div class="row q-gutter-sm items-center">
           <q-btn
-            v-if="selectedIds.length > 0 && ['Admin', 'super_admin'].includes(auth.role)"
+            v-if="
+              selectedIds.length > 0 &&
+              ['Admin', 'super_admin'].includes(auth.role)
+            "
             color="primary"
             icon="person_add"
             :label="`Assigner (${selectedIds.length})`"
@@ -79,7 +82,10 @@
         :selection="canBatchAssign ? 'multiple' : 'none'"
         v-model:selected="selectedRows"
         @update:selected="onSelectedUpdate"
-        @row-click="(_, row) => $router.push({ name: 'dossier-detail', params: { id: row.id } })"
+        @row-click="
+          (_, row) =>
+            $router.push({ name: 'dossier-detail', params: { id: row.id } })
+        "
         @row-contextmenu="onRowContextMenu"
       >
         <template #header-selection>
@@ -106,17 +112,64 @@
         </template>
         <template #body-cell-deadline_at="props">
           <q-td :props="props">
-            <div class="row items-center no-wrap" :class="deadlineColorClass(props.row.deadline_color)">
-              <span class="deadline-dot" :style="{ background: deadlineDotColor(props.row.deadline_color) }"></span>
-              <span class="text-weight-medium">{{ formatDeadlineAt(props.row.deadline_at) }}</span>
+            <div
+              class="row items-center no-wrap"
+              :class="deadlineColorClass(props.row.deadline_color)"
+            >
+              <span
+                class="deadline-dot"
+                :style="{
+                  background: deadlineDotColor(props.row.deadline_color),
+                }"
+              ></span>
+              <span class="text-weight-medium">{{
+                formatDeadlineAt(props.row.deadline_at)
+              }}</span>
             </div>
           </q-td>
         </template>
         <template #body-cell-deadline="props">
           <q-td :props="props">
-            <span class="text-weight-medium" :class="deadlineColorClass(props.row.deadline_color)">
+            <span
+              class="text-weight-medium"
+              :class="deadlineColorClass(props.row.deadline_color)"
+            >
               {{ props.row.deadline_remaining_label || "—" }}
             </span>
+          </q-td>
+        </template>
+        <template #body-cell-acteurs="props">
+          <q-td :props="props">
+            <div class="text-body2">
+              <div>
+                <span class="text-grey-7">Dispatch:</span>
+                {{
+                  props.row.dispatch_prenoms
+                    ? props.row.dispatch_prenoms + " " + props.row.dispatch_nom
+                    : "—"
+                }}
+              </div>
+              <div>
+                <span class="text-grey-7">Vérificateur:</span>
+                {{
+                  props.row.verificateur_prenoms
+                    ? props.row.verificateur_prenoms +
+                      " " +
+                      props.row.verificateur_nom
+                    : "—"
+                }}
+              </div>
+              <div>
+                <span class="text-grey-7">Validateur:</span>
+                {{
+                  props.row.validateur_prenoms
+                    ? props.row.validateur_prenoms +
+                      " " +
+                      props.row.validateur_nom
+                    : "—"
+                }}
+              </div>
+            </div>
           </q-td>
         </template>
         <template #body-cell-actions="props">
@@ -132,7 +185,10 @@
               <q-tooltip>Voir le dossier</q-tooltip>
             </q-btn>
             <q-btn
-              v-if="['Admin', 'super_admin'].includes(auth.role) && props.row.statut === 'REJETE'"
+              v-if="
+                ['Admin', 'super_admin'].includes(auth.role) &&
+                props.row.statut === 'REJETE'
+              "
               flat
               dense
               round
@@ -173,7 +229,9 @@
               v-close-popup
               @click="openInCurrentTab(contextMenuRow)"
             >
-              <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+              <q-item-section avatar
+                ><q-icon name="visibility"
+              /></q-item-section>
               <q-item-section>Ouvrir le dossier</q-item-section>
             </q-item>
             <q-item
@@ -182,16 +240,23 @@
               v-close-popup
               @click="openInNewTab(contextMenuRow)"
             >
-              <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
+              <q-item-section avatar
+                ><q-icon name="open_in_new"
+              /></q-item-section>
               <q-item-section>Ouvrir dans un nouvel onglet</q-item-section>
             </q-item>
             <q-item
-              v-if="['Admin', 'super_admin'].includes(auth.role) && contextMenuRow?.statut === 'REJETE'"
+              v-if="
+                ['Admin', 'super_admin'].includes(auth.role) &&
+                contextMenuRow?.statut === 'REJETE'
+              "
               clickable
               v-close-popup
               @click="confirmDelete(contextMenuRow)"
             >
-              <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+              <q-item-section avatar
+                ><q-icon name="delete" color="negative"
+              /></q-item-section>
               <q-item-section class="text-negative">Supprimer</q-item-section>
             </q-item>
           </q-list>
@@ -223,12 +288,20 @@
               <template #option="scope">
                 <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
                   <q-item-section>
-                    <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                    <q-item-label
+                      :class="{ 'text-grey-5': scope.opt.en_conge }"
+                    >
                       {{ scope.opt.label }}
-                      <q-badge v-if="scope.opt.en_conge" color="negative" class="q-ml-xs" label="En congé" />
+                      <q-badge
+                        v-if="scope.opt.en_conge"
+                        color="negative"
+                        class="q-ml-xs"
+                        label="En congé"
+                      />
                     </q-item-label>
                     <q-item-label caption>
-                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
+                      IM : {{ scope.opt.im || "—" }} —
+                      {{ scope.opt.nb_dossiers || 0 }} dossier(s)
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -348,6 +421,12 @@ const columns = [
     field: (r) => formatDate(r.updated_at),
     align: "left",
   },
+  {
+    name: "acteurs",
+    label: "Acteurs",
+    field: (r) => r,
+    align: "left",
+  },
   { name: "actions", label: "", field: "actions", align: "right" },
 ];
 
@@ -399,7 +478,18 @@ async function load() {
     if (filters.value.q) params.q = filters.value.q;
     if (filters.value.statut) params.statut = filters.value.statut;
     const { data } = await api.get("/dossiers", { params });
-    rows.value = data;
+    // Server marks `a_traiter` / `in_fifo` for the current user when applicable.
+    // Client-side: ensure the dossier to traiter (a_traiter) appears first,
+    // then those in the fifo, then the rest (stable otherwise).
+    rows.value = data.sort((a, b) => {
+      if ((a.a_traiter ? 1 : 0) !== (b.a_traiter ? 1 : 0)) {
+        return b.a_traiter ? 1 : -1;
+      }
+      if ((a.in_fifo ? 1 : 0) !== (b.in_fifo ? 1 : 0)) {
+        return b.in_fifo ? 1 : -1;
+      }
+      return 0;
+    });
   } finally {
     loading.value = false;
   }
@@ -431,7 +521,7 @@ function filterVerificateurs(val, update) {
   update(() => {
     const needle = val.toLowerCase();
     filteredVerificateurs.value = verificateurs.value.filter(
-      (v) => v.label.toLowerCase().indexOf(needle) > -1
+      (v) => v.label.toLowerCase().indexOf(needle) > -1,
     );
   });
 }
