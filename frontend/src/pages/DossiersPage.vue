@@ -6,14 +6,24 @@
           <h1 class="page-title">Dossiers</h1>
           <p class="page-sub">Suivi et validation des dossiers ORDSEC</p>
         </div>
-        <q-btn
-          v-if="['Dispatch', 'Admin'].includes(auth.role)"
-          color="primary"
-          icon="upload_file"
-          label="Importer"
-          :to="{ name: 'dossier-create' }"
-          unelevated
-        />
+        <div class="row q-gutter-sm items-center">
+          <q-btn
+            v-if="selectedIds.length > 0 && ['Admin', 'super_admin'].includes(auth.role)"
+            color="primary"
+            icon="person_add"
+            :label="`Assigner (${selectedIds.length})`"
+            unelevated
+            @click="showBatchAssignDialog = true"
+          />
+          <q-btn
+            v-if="['Dispatch', 'Admin'].includes(auth.role)"
+            color="primary"
+            icon="upload_file"
+            label="Importer"
+            :to="{ name: 'dossier-create' }"
+            unelevated
+          />
+        </div>
       </div>
 
       <div class="surface-card q-mb-md">
@@ -66,11 +76,27 @@
         row-key="id"
         :loading="loading"
         :pagination="{ rowsPerPage: 10 }"
-        @row-click="
-          (_, row) =>
-            $router.push({ name: 'dossier-detail', params: { id: row.id } })
-        "
+        :selection="canBatchAssign ? 'multiple' : 'none'"
+        v-model:selected="selectedRows"
+        @update:selected="onSelectedUpdate"
+        @row-click="(_, row) => $router.push({ name: 'dossier-detail', params: { id: row.id } })"
+        @row-contextmenu="onRowContextMenu"
       >
+        <template #header-selection>
+          <q-checkbox
+            :model-value="allAssignableSelected"
+            :indeterminate="someAssignableSelected && !allAssignableSelected"
+            @update:model-value="toggleSelectAllAssignable"
+          />
+        </template>
+        <template #body-selection="scope">
+          <q-checkbox
+            v-if="scope.row.statut === 'EN_ATTENTE_VERIFICATEUR'"
+            :model-value="scope.selected"
+            @update:model-value="scope.selected = $event"
+            @click.stop
+          />
+        </template>
         <template #body-cell-statut="props">
           <q-td :props="props">
             <q-badge :color="statusColor(props.row.statut)" class="status-chip">
@@ -120,23 +146,175 @@
           </q-td>
         </template>
       </q-table>
+
+      <!-- Context Menu (clic droit) — ancre fixe + q-menu (évite l'erreur Quasar target) -->
+      <div
+        v-if="contextMenuAnchor"
+        class="context-menu-anchor"
+        :style="{
+          position: 'fixed',
+          left: contextMenuAnchor.x + 'px',
+          top: contextMenuAnchor.y + 'px',
+          width: '1px',
+          height: '1px',
+          zIndex: 6000,
+        }"
+      >
+        <q-menu
+          v-model="showContextMenu"
+          :target="true"
+          no-parent-event
+          @hide="contextMenuAnchor = null"
+        >
+          <q-list style="min-width: 200px" dense>
+            <q-item
+              v-if="contextMenuRow"
+              clickable
+              v-close-popup
+              @click="openInCurrentTab(contextMenuRow)"
+            >
+              <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+              <q-item-section>Ouvrir le dossier</q-item-section>
+            </q-item>
+            <q-item
+              v-if="contextMenuRow"
+              clickable
+              v-close-popup
+              @click="openInNewTab(contextMenuRow)"
+            >
+              <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
+              <q-item-section>Ouvrir dans un nouvel onglet</q-item-section>
+            </q-item>
+            <q-item
+              v-if="['Admin', 'super_admin'].includes(auth.role) && contextMenuRow?.statut === 'REJETE'"
+              clickable
+              v-close-popup
+              @click="confirmDelete(contextMenuRow)"
+            >
+              <q-item-section avatar><q-icon name="delete" color="negative" /></q-item-section>
+              <q-item-section class="text-negative">Supprimer</q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+      </div>
+
+      <!-- Batch Assign Dialog -->
+      <q-dialog v-model="showBatchAssignDialog" persistent>
+        <q-card style="width: 480px; max-width: 95vw">
+          <q-card-section>
+            <div class="text-h6">Assigner un vérificateur</div>
+            <p class="text-caption text-grey-7 q-mt-xs">
+              {{ selectedIds.length }} dossier(s) sélectionné(s) seront assignés
+            </p>
+          </q-card-section>
+          <q-card-section class="q-pt-none">
+            <q-select
+              v-model="batchVerificateurId"
+              :options="verificateurs"
+              label="Vérificateur *"
+              outlined
+              dense
+              emit-value
+              map-options
+              use-input
+              input-debounce="200"
+              @filter="filterVerificateurs"
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
+                  <q-item-section>
+                    <q-item-label :class="{ 'text-grey-5': scope.opt.en_conge }">
+                      {{ scope.opt.label }}
+                      <q-badge v-if="scope.opt.en_conge" color="negative" class="q-ml-xs" label="En congé" />
+                    </q-item-label>
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }} — {{ scope.opt.nb_dossiers || 0 }} dossier(s)
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn flat label="Annuler" v-close-popup />
+            <q-btn
+              color="primary"
+              label="Assigner"
+              unelevated
+              :loading="batchLoading"
+              :disable="!batchVerificateurId"
+              @click="batchAssign"
+            />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
     </div>
   </q-page>
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 import { useAuthStore } from "stores/auth";
 import { statusColor, statusLabel, statutOptions } from "src/utils/status";
 
 const auth = useAuthStore();
+const router = useRouter();
 const $q = useQuasar();
 const rows = ref([]);
 const loading = ref(false);
 const filters = ref({ q: "", statut: null });
 const deletingId = ref(null);
+
+const canBatchAssign = computed(() =>
+  ["Admin", "super_admin"].includes(auth.role),
+);
+
+// Multi-select — uniquement EN_ATTENTE_VERIFICATEUR
+const selectedRows = ref([]);
+const selectedIds = computed(() => selectedRows.value.map((r) => r.id));
+
+const assignableRows = computed(() =>
+  rows.value.filter((r) => r.statut === "EN_ATTENTE_VERIFICATEUR"),
+);
+
+const allAssignableSelected = computed(
+  () =>
+    assignableRows.value.length > 0 &&
+    assignableRows.value.every((r) =>
+      selectedRows.value.some((s) => s.id === r.id),
+    ),
+);
+
+const someAssignableSelected = computed(() =>
+  assignableRows.value.some((r) =>
+    selectedRows.value.some((s) => s.id === r.id),
+  ),
+);
+
+function onSelectedUpdate(next) {
+  selectedRows.value = (next || []).filter(
+    (r) => r.statut === "EN_ATTENTE_VERIFICATEUR",
+  );
+}
+
+function toggleSelectAllAssignable(checked) {
+  selectedRows.value = checked ? [...assignableRows.value] : [];
+}
+
+// Batch assign
+const showBatchAssignDialog = ref(false);
+const batchVerificateurId = ref(null);
+const batchLoading = ref(false);
+const verificateurs = ref([]);
+const filteredVerificateurs = ref([]);
+
+// Context menu
+const showContextMenu = ref(false);
+const contextMenuAnchor = ref(null);
+const contextMenuRow = ref(null);
 
 const columns = [
   { name: "id", label: "#", field: "id", align: "left", sortable: true },
@@ -178,7 +356,6 @@ function formatDate(d) {
   return new Date(d).toLocaleString("fr-FR");
 }
 
-/** Couleurs d'aide visuelle de la deadline (vert / jaune / rouge). */
 function deadlineColorClass(c) {
   const map = {
     green: "text-positive",
@@ -204,13 +381,15 @@ function deadlineDotColor(c) {
 function formatDeadlineAt(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleString("fr-FR", {
+  const datePart = d.toLocaleDateString("fr-FR", {
     weekday: "short",
     day: "numeric",
     month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
   });
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const timePart = m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
+  return `${datePart} à ${timePart}`;
 }
 
 async function load() {
@@ -224,6 +403,88 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+async function loadVerificateurs() {
+  try {
+    const { data } = await api.get("/users", {
+      params: { role: "Verificateur", with_stats: 1 },
+    });
+    const admins = await api.get("/users", {
+      params: { role: "Admin", with_stats: 1 },
+    });
+    verificateurs.value = [...data, ...admins.data].map((u) => ({
+      label: `${u.prenoms} ${u.nom}`,
+      value: u.id,
+      im: u.im,
+      nb_dossiers: u.nb_dossiers,
+      en_conge: u.en_conge,
+      disable: u.en_conge,
+    }));
+    filteredVerificateurs.value = verificateurs.value;
+  } catch (e) {
+    console.error("Erreur chargement vérificateurs:", e);
+  }
+}
+
+function filterVerificateurs(val, update) {
+  update(() => {
+    const needle = val.toLowerCase();
+    filteredVerificateurs.value = verificateurs.value.filter(
+      (v) => v.label.toLowerCase().indexOf(needle) > -1
+    );
+  });
+}
+
+async function batchAssign() {
+  if (!batchVerificateurId.value || selectedIds.value.length === 0) return;
+  batchLoading.value = true;
+  try {
+    const { data } = await api.post("/dossiers/batch-assign-verificateur", {
+      dossier_ids: selectedIds.value,
+      id_verificateur: batchVerificateurId.value,
+    });
+    $q.notify({
+      type: "positive",
+      message: `${data.assigned} dossier(s) assigné(s) au vérificateur.`,
+    });
+    showBatchAssignDialog.value = false;
+    batchVerificateurId.value = null;
+    selectedRows.value = [];
+    await load();
+  } catch (e) {
+    $q.notify({
+      type: "negative",
+      message: e.response?.data?.error || "Erreur assignation multiple.",
+    });
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
+function onRowContextMenu(evt, row) {
+  evt.preventDefault();
+  evt.stopPropagation();
+  contextMenuRow.value = row;
+  contextMenuAnchor.value = { x: evt.clientX, y: evt.clientY };
+  showContextMenu.value = false;
+  requestAnimationFrame(() => {
+    showContextMenu.value = true;
+  });
+}
+
+function openInCurrentTab(row) {
+  if (!row?.id) return;
+  router.push({ name: "dossier-detail", params: { id: row.id } });
+}
+
+function openInNewTab(row) {
+  if (!row?.id) return;
+  const resolved = router.resolve({
+    name: "dossier-detail",
+    params: { id: row.id },
+  });
+  window.open(resolved.href, "_blank", "noopener,noreferrer");
 }
 
 function confirmDelete(row) {
@@ -251,7 +512,12 @@ function confirmDelete(row) {
   });
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  if (["Admin", "super_admin"].includes(auth.role)) {
+    loadVerificateurs();
+  }
+});
 </script>
 
 <style scoped>

@@ -13,7 +13,7 @@ const {
 } = require("../services/helpers");
 const {
   getDeadlineRemaining,
-  getPileDeadlineAt,
+  getDossierOwnDeadlineAt,
   addWorkingSeconds,
   formatRemaining,
 } = require("../services/deadline");
@@ -138,8 +138,14 @@ async function enrichDossierWithDeadline(dossier, userId, userRole) {
       congeFin,
     );
 
-    // Date absolue de la deadline (pour la colonne « Deadline »).
-    let dueAt = await getPileDeadlineAt(dossier, type, congeDebut, congeFin);
+    // Date absolue de la deadline individuelle (colonne « Deadline »).
+    // Le chrono restant (délai) reste basé sur le budget TOTAL de la pile.
+    let dueAt = await getDossierOwnDeadlineAt(
+      dossier,
+      type,
+      congeDebut,
+      congeFin,
+    );
     if (!dueAt) {
       // Anciens dossiers (sans pile) : deadline projetée depuis maintenant.
       dueAt = addWorkingSeconds(new Date(), remaining, congeDebut, congeFin);
@@ -2976,6 +2982,122 @@ async function deleteDossier(req, res) {
   }
 }
 
+async function batchAssignVerificateur(req, res) {
+  try {
+    if (!["Admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ error: "Réservé à l'administrateur" });
+    }
+
+    const { dossier_ids, id_verificateur } = req.body;
+
+    if (!Array.isArray(dossier_ids) || dossier_ids.length === 0) {
+      return res.status(400).json({ error: "Aucun dossier sélectionné" });
+    }
+
+    if (!id_verificateur) {
+      return res.status(400).json({ error: "Un vérificateur doit être désigné" });
+    }
+
+    if (await isUserOnConge(id_verificateur)) {
+      return res.status(400).json({
+        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+      });
+    }
+
+    const verif = await db.query(
+      `SELECT u.id, r.nom AS role FROM utilisateur u
+       JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
+      [id_verificateur],
+    );
+    if (!verif.rows[0] || !['Verificateur', 'Admin'].includes(verif.rows[0].role)) {
+      return res.status(400).json({ error: "Utilisateur vérificateur invalide" });
+    }
+
+    const results = [];
+
+    for (const dId of dossier_ids) {
+      const dossier = await getDossierOr404(dId);
+      if (!dossier) continue;
+      if (dossier.statut !== 'EN_ATTENTE_VERIFICATEUR') continue;
+
+      // FIFO : le dossier ne démarre son chrono que si la file est vide
+      const pendingDossier = await hasPendingDossier(id_verificateur, 'Verificateur');
+      const timerIsActive = !pendingDossier;
+
+      await db.query(
+        `UPDATE dossier SET
+           id_verificateur = $1,
+           statut = 'EN_VERIFICATION',
+           assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+           deadline_verif_elapsed_sec = 0,
+           deadline_verif_paused_at = NULL,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [id_verificateur, dId],
+      );
+
+      // Pile FIFO
+      await joinPileDeadline({
+        userId: Number(id_verificateur),
+        role: 'Verificateur',
+        nCompte: dossier.n_compte,
+        dossierId: dId,
+        excludeDossierId: dId,
+      });
+
+      await db.query(
+        `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
+         VALUES ($1, $2, 'VERIFICATION', $3, 'EN_VERIFICATION')`,
+        [
+          req.user.id,
+          dId,
+          `Dossier assigné au vérificateur par ${req.user.prenoms} ${req.user.nom} (assignation multiple)`,
+        ],
+      );
+
+      await createNotification({
+        id_user: Number(id_verificateur),
+        id_dossier: dId,
+        message: `Dossier « ${dossier.nom} » assigné pour vérification`,
+        type: 'VERIFICATION',
+      });
+
+      const updatedDossier = await getDossierOr404(dId);
+      emitToUser(Number(id_verificateur), 'dossier:update', { dossier: updatedDossier });
+      emitToAdmins('dossier:update', { dossier: updatedDossier });
+
+      results.push(updatedDossier);
+    }
+
+    res.json({ assigned: results.length, dossiers: results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur assignation multiple vérificateur" });
+  }
+}
+
+async function getAutocomplete(req, res) {
+  try {
+    const { field } = req.query;
+    const allowed = ['n_compte', 'n_be', 'n_soa', 'n_ord', 'exo_budgetaire', 'ref_ecriture'];
+    if (!allowed.includes(field)) {
+      return res.status(400).json({ error: 'Champ invalide' });
+    }
+
+    const { rows } = await db.query(
+      `SELECT DISTINCT ${field} FROM dossier
+       WHERE ${field} IS NOT NULL AND ${field} <> ''
+       ORDER BY ${field} DESC
+       LIMIT 20`
+    );
+
+    res.json(rows.map(r => r[field]));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erreur autocomplete' });
+  }
+}
+
 module.exports = {
   list,
   getOne,
@@ -2983,6 +3105,8 @@ module.exports = {
   checkDuplicate,
   confirmReimport,
   assignVerificateur,
+  batchAssignVerificateur,
+  getAutocomplete,
   comment,
   sendToValidateur,
   decide,

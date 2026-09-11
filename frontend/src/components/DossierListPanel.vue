@@ -78,7 +78,7 @@
 import { ref } from 'vue'
 import { statusColor, statusLabel, statutOptions } from 'src/utils/status'
 
-defineProps({
+const props = defineProps({
   rows: { type: Array, default: () => [] },
   selectedId: { type: [Number, String], default: null },
   loading: { type: Boolean, default: false },
@@ -99,12 +99,4 @@ function formatDate(d) {
   if (!d) return ''
   return new Date(d).toLocaleDateString('fr-FR')
 }
-
-// fix props reference in isSelected
-const props = defineProps({
-  rows: { type: Array, default: () => [] },
-  selectedId: { type: [Number, String], default: null },
-  loading: { type: Boolean, default: false },
-  showStatutFilter: { type: Boolean, default: true },
-})
 </script>

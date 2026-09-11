@@ -215,12 +215,15 @@
             <template v-if="!dossier?.id_validateur || showChangeValidateur">
               <q-select
                 v-model="idValidateur"
-                :options="validateurs"
+                :options="filteredValidateurs"
                 label="Choisir un validateur *"
                 outlined
                 dense
                 emit-value
                 map-options
+                use-input
+                input-debounce="200"
+                @filter="filterValidateurs"
                 popup-content-class="fullscreen-select-popup"
                 class="q-mb-sm"
               >
@@ -330,7 +333,7 @@
 
             <q-select
               v-model="idArchiveur"
-              :options="archiveurs"
+              :options="filteredArchiveurs"
               label="Responsable archivage *"
               outlined
               dense
@@ -338,6 +341,7 @@
               map-options
               use-input
               input-debounce="200"
+              @filter="filterArchiveurs"
               popup-content-class="fullscreen-select-popup"
               class="q-mb-md"
             >
@@ -596,12 +600,15 @@
             <template v-if="canAssignVerificateur">
               <q-select
                 v-model="idVerificateur"
-                :options="verificateurs"
+                :options="filteredVerificateurs"
                 label="Assigner vérificateur *"
                 outlined
                 dense
                 emit-value
                 map-options
+                use-input
+                input-debounce="200"
+                @filter="filterVerificateurs"
                 popup-content-class="fullscreen-select-popup"
                 class="q-mb-sm"
               >
@@ -988,12 +995,15 @@
             </div>
             <q-select
               v-model="idVerificateur"
-              :options="verificateurs"
+              :options="filteredVerificateurs"
               label="Vérificateur *"
               outlined
               dense
               emit-value
               map-options
+              use-input
+              input-debounce="200"
+              @filter="filterVerificateurs"
               class="q-mb-sm"
             >
               <template #option="scope">
@@ -1115,12 +1125,15 @@
             <template v-if="!dossier?.id_validateur || showChangeValidateur">
               <q-select
                 v-model="idValidateur"
-                :options="validateurs"
+                :options="filteredValidateurs"
                 label="Choisir un validateur"
                 outlined
                 dense
                 emit-value
                 map-options
+                use-input
+                input-debounce="200"
+                @filter="filterValidateurs"
                 class="q-mb-sm"
               >
                 <template #option="scope">
@@ -1202,7 +1215,7 @@
             <!-- Responsable de l'archivage -->
             <q-select
               v-model="idArchiveur"
-              :options="archiveurs"
+              :options="filteredArchiveurs"
               label="Responsable archivage *"
               outlined
               dense
@@ -1210,6 +1223,7 @@
               map-options
               use-input
               input-debounce="200"
+              @filter="filterArchiveurs"
               class="q-mb-md"
             >
               <!-- Icône à gauche -->
@@ -1324,7 +1338,7 @@
             <!-- Sélecteur i_archive pour validation rapide -->
             <q-select
               v-model="idArchiveur"
-              :options="archiveurs"
+              :options="filteredArchiveurs"
               label="Responsable archivage (pour valider)"
               outlined
               dense
@@ -1332,6 +1346,7 @@
               map-options
               use-input
               input-debounce="200"
+              @filter="filterArchiveurs"
               class="q-mb-md"
             >
               <template #prepend>
@@ -1561,6 +1576,7 @@ const {
 } = useDeadlineTimer(dossier, auth);
 const idValidateur = ref(null);
 const validateurs = ref([]);
+const filteredValidateurs = ref([]);
 const previewUrl = ref(null);
 const previewLoading = ref(false);
 const oldPreviewUrl = ref(null);
@@ -1576,6 +1592,7 @@ const showReuploadDialog = ref(false);
 const showOverwriteDialog = ref(false);
 const pendingAction = ref(null);
 const idVerificateur = ref(null);
+const filteredVerificateurs = ref([]);
 
 const newVersionFile = ref(null);
 
@@ -1600,6 +1617,7 @@ const archiveForm = ref({
 });
 
 const archiveurs = ref([]);
+const filteredArchiveurs = ref([]);
 const idArchiveur = ref(null);
 
 const canArchive = computed(() => {
@@ -1693,6 +1711,7 @@ async function loadArchiveurs() {
     im: u.im,
     email: u.email,
   }));
+  filteredArchiveurs.value = archiveurs.value;
 }
 
 async function archiveDossier() {
@@ -1765,6 +1784,7 @@ async function loadVerificateurs() {
     en_conge: u.en_conge,
     disable: u.en_conge,
   }));
+  filteredVerificateurs.value = verificateurs.value;
 }
 
 const previewMetadata = computed(() => {
@@ -2193,11 +2213,39 @@ async function loadValidateurs() {
     en_conge: u.en_conge,
     disable: u.en_conge,
   }));
+  filteredValidateurs.value = validateurs.value;
 }
 
 function initials(user) {
   if (!user) return "?";
   return `${user.prenoms?.[0] || ""}${user.nom?.[0] || ""}`.toUpperCase();
+}
+
+function filterValidateurs(val, update) {
+  update(() => {
+    const needle = val.toLowerCase();
+    filteredValidateurs.value = validateurs.value.filter(
+      (v) => v.label.toLowerCase().indexOf(needle) > -1
+    );
+  });
+}
+
+function filterVerificateurs(val, update) {
+  update(() => {
+    const needle = val.toLowerCase();
+    filteredVerificateurs.value = verificateurs.value.filter(
+      (v) => v.label.toLowerCase().indexOf(needle) > -1
+    );
+  });
+}
+
+function filterArchiveurs(val, update) {
+  update(() => {
+    const needle = val.toLowerCase();
+    filteredArchiveurs.value = archiveurs.value.filter(
+      (v) => v.label.toLowerCase().indexOf(needle) > -1
+    );
+  });
 }
 
 /** Gérer les erreurs FIFO dans les actions */

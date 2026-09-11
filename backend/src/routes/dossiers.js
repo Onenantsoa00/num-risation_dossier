@@ -9,6 +9,12 @@ router.use(authenticate);
 
 router.get("/", dossierCtrl.list);
 router.get("/check-duplicate", dossierCtrl.checkDuplicate);
+router.get("/autocomplete", dossierCtrl.getAutocomplete);
+router.post(
+  "/batch-assign-verificateur",
+  authorize("Admin", "super_admin"),
+  dossierCtrl.batchAssignVerificateur,
+);
 router.post(
   "/",
   authorize("Dispatch", "Admin", "super_admin"),

@@ -258,8 +258,12 @@ async function startNextQueuedTimer(userId, role) {
  *    pile gagne +3 h (n° compte rapide) ou +12 h (sinon).
  *
  * Tous les dossiers encore dans la pile partagent le même pile_start et le
- * même budget (mis à jour ici). `excludeDossierId` permet d'ignorer le
- * dossier en cours (réassignation / nouvelle version).
+ * même pile_budget (mis à jour ici) pour le chrono commun.
+ * En revanche, own_budget_sec est figé à l'entrée : c'est le cumul jusqu'à
+ * CE dossier, pour afficher sa deadline individuelle.
+ *
+ * `excludeDossierId` permet d'ignorer le dossier en cours
+ * (réassignation / nouvelle version).
  */
 async function joinPileDeadline({
   userId,
@@ -300,24 +304,27 @@ async function joinPileDeadline({
     ? existingBudget + pileExtraSecForAccount(nCompte)
     : PILE_BASE_SEC;
 
-  // 1) Le dossier qui entre porte l'état de la pile.
+  // 1) Le dossier qui entre : budget total + own_budget (= cumul à son entrée)
   await executor.query(
     `UPDATE dossier
      SET ${pre}_pile_start = $1,
          ${pre}_pile_budget_sec = $2,
+         ${pre}_own_budget_sec = $2,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = $3`,
     [pileStart, budget, dossierId],
   );
 
-  // 2) Tous les autres dossiers de la pile partagent le nouveau budget.
-  //    (on ne touche PAS à updated_at : il sert d'ordre FIFO d'entrée dans la file)
+  // 2) Les autres dossiers de la pile partagent le nouveau budget TOTAL
+  //    (chrono commun), sans toucher à leur own_budget ni à updated_at.
   const updParams = [userId, statut, budget];
   let updSql = `UPDATE dossier SET ${pre}_pile_budget_sec = $3
-                WHERE ${idCol} = $1 AND statut = $2 AND ${pre}_pile_start IS NOT NULL`;
+                WHERE ${idCol} = $1 AND statut = $2 AND ${pre}_pile_start IS NOT NULL
+                  AND id <> $${updParams.length + 1}`;
+  updParams.push(dossierId);
   if (excludeDossierId) {
     updParams.push(excludeDossierId);
-    updSql += ` AND id <> $4`;
+    updSql += ` AND id <> $${updParams.length}`;
   }
   await executor.query(updSql, updParams);
 

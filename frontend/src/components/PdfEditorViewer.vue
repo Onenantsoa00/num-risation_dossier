@@ -218,7 +218,7 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
 
@@ -329,7 +329,7 @@ async function loadDoc(bytes) {
   pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
   numPages.value = pdfDoc.numPages;
   pageNum.value = Math.min(pageNum.value || 1, numPages.value);
-  await renderPage();
+  // Ne pas rendre ici : le canvas n'est monté qu'après loading=false.
 }
 
 async function loadFromSrc() {
@@ -348,6 +348,11 @@ async function loadFromSrc() {
     loadError.value = true;
   } finally {
     loading.value = false;
+  }
+  // Attendre le montage du <canvas> puis dessiner la 1re page.
+  if (!loadError.value && pdfDoc) {
+    await nextTick();
+    await renderPage();
   }
 }
 
@@ -400,6 +405,8 @@ async function applyEdit(fn) {
   dirty.value = true;
 
   await loadDoc(originalBytes);
+  await nextTick();
+  await renderPage();
 }
 
 function confirmDeletePage() {

@@ -63,23 +63,104 @@
 
           <div class="row q-col-gutter-md">
             <div class="col-12 col-sm-6">
-              <q-input v-model="nCompte" label="N° compte *" outlined />
+              <q-select
+                v-model="nCompte"
+                label="N° compte *"
+                outlined
+                use-input
+                fill-input
+                hide-selected
+                input-debounce="200"
+                :options="suggestions.n_compte"
+                maxlength="4"
+                @filter="(val, update) => filterField('n_compte', val, update)"
+                @input-value="(v) => onFieldTyped('n_compte', v)"
+              >
+                <template #hint>
+                  <span :class="nCompte.length > 0 && nCompte.length !== 4 ? 'text-negative' : ''">
+                    {{ nCompte.length }}/4 caractères
+                  </span>
+                </template>
+              </q-select>
             </div>
             <div class="col-12 col-sm-6">
-              <q-input v-model="nBe" label="N° BE *" outlined />
+              <q-select
+                v-model="nBe"
+                label="N° BE *"
+                outlined
+                use-input
+                fill-input
+                hide-selected
+                input-debounce="200"
+                :options="suggestions.n_be"
+                maxlength="6"
+                @filter="(val, update) => filterField('n_be', val, update)"
+                @input-value="(v) => onFieldTyped('n_be', v)"
+              >
+                <template #hint>
+                  <span :class="nBe.length > 0 && nBe.length !== 6 ? 'text-negative' : ''">
+                    {{ nBe.length }}/6 caractères
+                  </span>
+                </template>
+              </q-select>
             </div>
             <div class="col-12 col-sm-6">
-              <q-input v-model="nSoa" label="N° SOA *" outlined />
+              <q-select
+                v-model="nSoa"
+                label="N° SOA *"
+                outlined
+                use-input
+                fill-input
+                hide-selected
+                input-debounce="200"
+                :options="suggestions.n_soa"
+                maxlength="18"
+                hint="Format: XX-XX-X-XXX-XXXXX"
+                @filter="(val, update) => filterField('n_soa', val, update)"
+                @input-value="onSoaTyped"
+              />
             </div>
             <div class="col-12 col-sm-6">
-              <q-input v-model="nOrd" label="N° ORD" outlined />
+              <q-select
+                v-model="nOrd"
+                label="N° ORD"
+                outlined
+                use-input
+                fill-input
+                hide-selected
+                input-debounce="200"
+                :options="suggestions.n_ord"
+                maxlength="6"
+                @filter="(val, update) => filterField('n_ord', val, update)"
+                @input-value="(v) => onFieldTyped('n_ord', v)"
+              >
+                <template #hint>
+                  <span :class="nOrd.length > 0 && nOrd.length !== 6 ? 'text-negative' : ''">
+                    {{ nOrd.length }}/6 caractères
+                  </span>
+                </template>
+              </q-select>
             </div>
             <div class="col-12 col-sm-6">
-              <q-input
+              <q-select
                 v-model="exoBudgetaire"
                 label="Exercice budgétaire *"
                 outlined
-              />
+                use-input
+                fill-input
+                hide-selected
+                input-debounce="200"
+                :options="suggestions.exo_budgetaire"
+                maxlength="4"
+                @filter="(val, update) => filterField('exo_budgetaire', val, update)"
+                @input-value="(v) => onFieldTyped('exo_budgetaire', v)"
+              >
+                <template #hint>
+                  <span :class="exoBudgetaire.length > 0 && exoBudgetaire.length !== 4 ? 'text-negative' : ''">
+                    {{ exoBudgetaire.length }}/4 caractères
+                  </span>
+                </template>
+              </q-select>
             </div>
           </div>
 
@@ -169,7 +250,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { api } from "boot/axios";
@@ -191,6 +272,38 @@ const nSoa = ref("");
 const nOrd = ref("");
 const exoBudgetaire = ref("");
 
+const FIELD_REFS = {
+  n_compte: nCompte,
+  n_be: nBe,
+  n_soa: nSoa,
+  n_ord: nOrd,
+  exo_budgetaire: exoBudgetaire,
+};
+
+const FIELD_LIMITS = {
+  n_compte: 4,
+  n_be: 6,
+  n_soa: 18,
+  n_ord: 6,
+  exo_budgetaire: 4,
+};
+
+const suggestions = reactive({
+  n_compte: [],
+  n_be: [],
+  n_soa: [],
+  n_ord: [],
+  exo_budgetaire: [],
+});
+
+const apiHistory = reactive({
+  n_compte: [],
+  n_be: [],
+  n_soa: [],
+  n_ord: [],
+  exo_budgetaire: [],
+});
+
 const nomDossier = computed(() => {
   return [exoBudgetaire.value, nBe.value, nOrd.value, nCompte.value, nSoa.value]
     .map((value) => String(value || "").trim())
@@ -199,6 +312,94 @@ const nomDossier = computed(() => {
 });
 
 const form = reactive({ commentaire: "" });
+
+function sanitizeAlnum(val, max) {
+  return String(val || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, max);
+}
+
+/**
+ * Auto-format n_soa: XX-XX-X-XXX-XXXXX
+ */
+function formatSoa(val) {
+  const raw = String(val || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 15);
+  const parts = [];
+  if (raw.length > 0) parts.push(raw.slice(0, 2));
+  if (raw.length > 2) parts.push(raw.slice(2, 4));
+  if (raw.length > 4) parts.push(raw.slice(4, 5));
+  if (raw.length > 5) parts.push(raw.slice(5, 8));
+  if (raw.length > 8) parts.push(raw.slice(8, 13));
+  return parts.join("-");
+}
+
+function onFieldTyped(field, val) {
+  const max = FIELD_LIMITS[field];
+  FIELD_REFS[field].value = sanitizeAlnum(val, max);
+}
+
+function onSoaTyped(val) {
+  nSoa.value = formatSoa(val);
+}
+
+function uniqueValues(list) {
+  const seen = new Set();
+  const out = [];
+  for (const v of list) {
+    const s = String(v || "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function localHistoryFor(field) {
+  return uniqueValues(
+    getAutocompleteHistory()
+      .map((e) => e[field])
+      .filter(Boolean),
+  );
+}
+
+function mergeSuggestions(field, needle = "") {
+  const n = String(needle || "").trim().toUpperCase();
+  const merged = uniqueValues([
+    ...localHistoryFor(field),
+    ...(apiHistory[field] || []),
+  ]);
+  if (!n) return merged.slice(0, 20);
+  return merged.filter((v) => String(v).toUpperCase().includes(n)).slice(0, 20);
+}
+
+async function loadApiSuggestions(field) {
+  try {
+    const { data } = await api.get("/dossiers/autocomplete", {
+      params: { field },
+    });
+    apiHistory[field] = Array.isArray(data) ? data : [];
+  } catch {
+    apiHistory[field] = [];
+  }
+}
+
+function filterField(field, val, update) {
+  update(() => {
+    suggestions[field] = mergeSuggestions(field, val);
+  });
+}
+
+async function preloadSuggestions() {
+  const fields = Object.keys(FIELD_REFS);
+  await Promise.all(fields.map((f) => loadApiSuggestions(f)));
+  for (const f of fields) {
+    suggestions[f] = mergeSuggestions(f);
+  }
+}
 
 function buildFormData() {
   const fd = new FormData();
@@ -215,6 +416,25 @@ function buildFormData() {
   return fd;
 }
 
+function validateFields() {
+  if (nCompte.value && nCompte.value.length !== 4) {
+    return "Le N° compte doit contenir exactement 4 caractères.";
+  }
+  if (nBe.value && nBe.value.length !== 6) {
+    return "Le N° BE doit contenir exactement 6 caractères.";
+  }
+  if (nOrd.value && nOrd.value.length !== 6) {
+    return "Le N° ORD doit contenir exactement 6 caractères.";
+  }
+  if (nSoa.value) {
+    const soaRaw = nSoa.value.replace(/-/g, "");
+    if (soaRaw.length !== 13) {
+      return "Le N° SOA doit contenir exactement 13 caractères (XX-XX-X-XXX-XXXXX).";
+    }
+  }
+  return null;
+}
+
 async function submit() {
   error.value = "";
 
@@ -227,10 +447,23 @@ async function submit() {
     return;
   }
 
+  const validationError = validateFields();
+  if (validationError) {
+    error.value = validationError;
+    return;
+  }
+
   loading.value = true;
   try {
     const { data } = await api.post("/dossiers", buildFormData());
     $q.notify({ type: "positive", message: "Dossier envoyé aux administrateurs." });
+    saveToAutocomplete({
+      n_compte: nCompte.value,
+      n_be: nBe.value,
+      n_soa: nSoa.value,
+      n_ord: nOrd.value,
+      exo_budgetaire: exoBudgetaire.value,
+    });
     router.push({ name: "dossier-detail", params: { id: data.id } });
   } catch (e) {
     if (e.response?.status === 409 && e.response?.data?.code === "DUPLICATE_ACTIVE") {
@@ -263,7 +496,6 @@ async function confirmDuplicateReimport() {
       type: "positive",
       message: "Nouveau dossier créé — ancien dossier conservé pour comparaison.",
     });
-    // Rediriger vers le nouveau dossier (côté gauche = ancien, côté droit = nouveau)
     router.push({ name: "dossier-detail", params: { id: data.new_dossier.id } });
   } catch (e) {
     error.value = e.response?.data?.error || "Erreur lors de la confirmation.";
@@ -272,6 +504,31 @@ async function confirmDuplicateReimport() {
     loading.value = false;
   }
 }
+
+/* ============================================================
+   AUTOCOMPLETE : localStorage + API
+   ============================================================ */
+const AUTOCOMPLETE_KEY = "dossier_autocomplete";
+
+function getAutocompleteHistory() {
+  try {
+    const raw = localStorage.getItem(AUTOCOMPLETE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveToAutocomplete(values) {
+  const history = getAutocompleteHistory();
+  history.unshift({ ...values, timestamp: Date.now() });
+  if (history.length > 50) history.length = 50;
+  localStorage.setItem(AUTOCOMPLETE_KEY, JSON.stringify(history));
+}
+
+onMounted(() => {
+  preloadSuggestions();
+});
 </script>
 
 <style scoped>

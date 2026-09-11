@@ -383,7 +383,7 @@ async function getDeadlineRemaining(
 }
 
 /**
- * Date (instantané absolu) de la deadline d'une pile.
+ * Date (instantané absolu) de la deadline d'une pile (budget total partagé).
  */
 async function getPileDeadlineAt(dossier, type, congeDebut, congeFin) {
   const jourFeries = await getJourFeries();
@@ -398,6 +398,36 @@ async function getPileDeadlineAt(dossier, type, congeDebut, congeFin) {
   return addWorkingSeconds(
     pileStart,
     pileBudget,
+    congeDebut,
+    congeFin,
+    jourFeries,
+  );
+}
+
+/**
+ * Date de deadline INDIVIDUELLE d'un dossier dans la pile.
+ * Utilise own_budget_sec (cumul au moment de l'entrée dans la pile) :
+ *  - 1er dossier → 12h
+ *  - suivants → 12h + 3h/12h + …
+ * Fallback sur le budget total de pile si own_budget n'est pas encore renseigné.
+ */
+async function getDossierOwnDeadlineAt(dossier, type, congeDebut, congeFin) {
+  const jourFeries = await getJourFeries();
+  const isVerif = type === "verification";
+  const pileStart = isVerif
+    ? dossier.deadline_verif_pile_start
+    : dossier.deadline_valid_pile_start;
+  const ownBudget = isVerif
+    ? dossier.deadline_verif_own_budget_sec
+    : dossier.deadline_valid_own_budget_sec;
+  const pileBudget = isVerif
+    ? dossier.deadline_verif_pile_budget_sec
+    : dossier.deadline_valid_pile_budget_sec;
+  const budget = Number(ownBudget || pileBudget || 0);
+  if (!pileStart || !budget) return null;
+  return addWorkingSeconds(
+    pileStart,
+    budget,
     congeDebut,
     congeFin,
     jourFeries,
@@ -432,6 +462,7 @@ module.exports = {
   addWorkingSeconds,
   getDeadlineRemaining,
   getPileDeadlineAt,
+  getDossierOwnDeadlineAt,
   formatRemaining,
   isDeadlineExpired,
   isWorkingMinute,
