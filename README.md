@@ -96,7 +96,7 @@ frontend/src/
 
 ## pendant le developpement
 
-git checkout dev
+git switch dev
 git add .
 git commit -m "Nouvelle fonctionnalité"
 git push origin dev

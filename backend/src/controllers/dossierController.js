@@ -332,8 +332,7 @@ async function list(req, res) {
       let markedCurrent = false;
       for (const d of enriched) {
         const mineVerif =
-          d.statut === "EN_VERIFICATION" &&
-          d.id_verificateur === req.user.id;
+          d.statut === "EN_VERIFICATION" && d.id_verificateur === req.user.id;
         const mineValid =
           d.statut === "EN_VALIDATION" && d.id_validateur === req.user.id;
         if (mineVerif || mineValid) {
@@ -2076,7 +2075,8 @@ async function replaceFile(req, res) {
 
     if (req.user.role === "Verificateur" && wantsDelete) {
       return res.status(403).json({
-        error: "Le vérificateur ne peut que déplacer des pages, pas en supprimer.",
+        error:
+          "Le vérificateur ne peut que déplacer des pages, pas en supprimer.",
       });
     }
 
@@ -2105,7 +2105,9 @@ async function replaceFile(req, res) {
     // 3. Vérification du fichier
     // ============================================================
     if (!req.file) {
-      return res.status(400).json({ error: "Le fichier PDF modifié est requis" });
+      return res
+        .status(400)
+        .json({ error: "Le fichier PDF modifié est requis" });
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
@@ -2388,101 +2390,101 @@ async function exportDossier(req, res) {
     //
     // PDF = historique complet
     // ============================================================
-    const commentairePdf = new PDFDocument({
-      margin: 50,
-      size: "A4",
-    });
+    // const commentairePdf = new PDFDocument({
+    //   margin: 50,
+    //   size: "A4",
+    // });
 
-    const commentaireChunks = [];
+    // const commentaireChunks = [];
 
-    commentairePdf.on("data", (chunk) => {
-      commentaireChunks.push(chunk);
-    });
+    // commentairePdf.on("data", (chunk) => {
+    //   commentaireChunks.push(chunk);
+    // });
 
-    const commentairePdfPromise = new Promise((resolve, reject) => {
-      commentairePdf.on("end", () => {
-        resolve(Buffer.concat(commentaireChunks));
-      });
+    // const commentairePdfPromise = new Promise((resolve, reject) => {
+    //   commentairePdf.on("end", () => {
+    //     resolve(Buffer.concat(commentaireChunks));
+    //   });
 
-      commentairePdf.on("error", reject);
-    });
+    //   commentairePdf.on("error", reject);
+    // });
 
-    commentairePdf.fontSize(18).text("Historique du dossier", {
-      align: "center",
-    });
+    // commentairePdf.fontSize(18).text("Historique du dossier", {
+    //   align: "center",
+    // });
 
-    commentairePdf.moveDown();
+    // commentairePdf.moveDown();
 
-    commentairePdf.fontSize(11);
+    // commentairePdf.fontSize(11);
 
-    commentairePdf.text(`Dossier : ${dossier.nom || "-"}`);
-    commentairePdf.text(`N° compte : ${dossier.n_compte || "-"}`);
-    commentairePdf.text(`N° BE : ${dossier.n_be || "-"}`);
-    commentairePdf.text(`N° ORD : ${dossier.n_ord || "-"}`);
-    commentairePdf.text(`N° SOA : ${dossier.n_soa || "-"}`);
-    commentairePdf.text(
-      `Exercice budgétaire : ${dossier.exo_budgetaire || "-"}`,
-    );
+    // commentairePdf.text(`Dossier : ${dossier.nom || "-"}`);
+    // commentairePdf.text(`N° compte : ${dossier.n_compte || "-"}`);
+    // commentairePdf.text(`N° BE : ${dossier.n_be || "-"}`);
+    // commentairePdf.text(`N° ORD : ${dossier.n_ord || "-"}`);
+    // commentairePdf.text(`N° SOA : ${dossier.n_soa || "-"}`);
+    // commentairePdf.text(
+    //   `Exercice budgétaire : ${dossier.exo_budgetaire || "-"}`,
+    // );
 
-    commentairePdf.moveDown();
+    // commentairePdf.moveDown();
 
-    commentairePdf.text(`Version : ${dossier.version || 1}`);
+    // commentairePdf.text(`Version : ${dossier.version || 1}`);
 
-    if (dossier.admin_modifie) {
-      commentairePdf
-        .font("Helvetica-Bold")
-        .fillColor("red")
-        .text(
-          "⚠ Modifié par un administrateur — les données peuvent différer de l'original.",
-        );
-      commentairePdf.fillColor("black").font("Helvetica");
-    }
+    // if (dossier.admin_modifie) {
+    //   commentairePdf
+    //     .font("Helvetica-Bold")
+    //     .fillColor("red")
+    //     .text(
+    //       "⚠ Modifié par un administrateur — les données peuvent différer de l'original.",
+    //     );
+    //   commentairePdf.fillColor("black").font("Helvetica");
+    // }
 
-    commentairePdf.text(`Compte Prise en charge : ${dossier.compte_pc || "-"}`);
+    // commentairePdf.text(`Compte Prise en charge : ${dossier.compte_pc || "-"}`);
 
-    commentairePdf.text(
-      `Date d'écriture : ${formatHumanDate(dossier.date_fin_dossier)}`,
-    );
+    // commentairePdf.text(
+    //   `Date d'écriture : ${formatHumanDate(dossier.date_fin_dossier)}`,
+    // );
 
-    commentairePdf.text(
-      `Référence d'écriture : ${dossier.ref_ecriture || "-"}`,
-    );
+    // commentairePdf.text(
+    //   `Référence d'écriture : ${dossier.ref_ecriture || "-"}`,
+    // );
 
-    commentairePdf.moveDown();
+    // commentairePdf.moveDown();
 
-    commentairePdf.fontSize(14).text("Commentaires et historique");
+    // commentairePdf.fontSize(14).text("Commentaires et historique");
 
-    commentairePdf.moveDown();
+    // commentairePdf.moveDown();
 
-    // ============================================================
-    // Historique complet
-    // ============================================================
-    for (const t of traitements.rows) {
-      const auteur = `${t.prenoms || ""} ${t.nom || ""}`.trim();
+    // // ============================================================
+    // // Historique complet
+    // // ============================================================
+    // for (const t of traitements.rows) {
+    //   const auteur = `${t.prenoms || ""} ${t.nom || ""}`.trim();
 
-      const date = formatHumanDate(t.date_traitement);
+    //   const date = formatHumanDate(t.date_traitement);
 
-      commentairePdf
-        .fontSize(11)
-        .font("Helvetica-Bold")
-        .text(`${date} — ${t.type_traitement || ""}`);
+    //   commentairePdf
+    //     .fontSize(11)
+    //     .font("Helvetica-Bold")
+    //     .text(`${date} — ${t.type_traitement || ""}`);
 
-      commentairePdf.font("Helvetica").text(`Auteur : ${auteur || "-"}`);
+    //   commentairePdf.font("Helvetica").text(`Auteur : ${auteur || "-"}`);
 
-      commentairePdf.text(`Statut : ${t.statut || "-"}`);
+    //   commentairePdf.text(`Statut : ${t.statut || "-"}`);
 
-      commentairePdf.text(`Commentaire : ${t.commentaire || "-"}`);
+    //   commentairePdf.text(`Commentaire : ${t.commentaire || "-"}`);
 
-      commentairePdf.moveDown();
-    }
+    //   commentairePdf.moveDown();
+    // }
 
-    commentairePdf.end();
+    // commentairePdf.end();
 
-    const commentairePdfBuffer = await commentairePdfPromise;
+    // const commentairePdfBuffer = await commentairePdfPromise;
 
-    archive.append(commentairePdfBuffer, {
-      name: "commentaire.pdf",
-    });
+    // archive.append(commentairePdfBuffer, {
+    //   name: "commentaire.pdf",
+    // });
 
     // ============================================================
     // 10. Générer commentaire_to_ordsec.pdf
@@ -2593,7 +2595,7 @@ async function exportDossier(req, res) {
     // Ajout au ZIP
     // ============================================================
     archive.append(ordsecPdfBuffer, {
-      name: "commentaire_to_ordsec.pdf",
+      name: `retour_${dossier.n_ord}.pdf`,
     });
 
     // ============================================================
@@ -2604,7 +2606,7 @@ async function exportDossier(req, res) {
 
       if (fs.existsSync(filePath)) {
         archive.file(filePath, {
-          name: `fichier/${dossier.fichier_original}`,
+          name: dossier.fichier_original,
         });
       } else {
         console.warn(`Fichier du dossier introuvable : ${filePath}`);
@@ -3031,12 +3033,15 @@ async function batchAssignVerificateur(req, res) {
     }
 
     if (!id_verificateur) {
-      return res.status(400).json({ error: "Un vérificateur doit être désigné" });
+      return res
+        .status(400)
+        .json({ error: "Un vérificateur doit être désigné" });
     }
 
     if (await isUserOnConge(id_verificateur)) {
       return res.status(400).json({
-        error: "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
+        error:
+          "Ce vérificateur est en congé et ne peut pas recevoir de dossier.",
       });
     }
 
@@ -3045,8 +3050,13 @@ async function batchAssignVerificateur(req, res) {
        JOIN roles r ON r.id = u.id_roles WHERE u.id = $1`,
       [id_verificateur],
     );
-    if (!verif.rows[0] || !['Verificateur', 'Admin'].includes(verif.rows[0].role)) {
-      return res.status(400).json({ error: "Utilisateur vérificateur invalide" });
+    if (
+      !verif.rows[0] ||
+      !["Verificateur", "Admin"].includes(verif.rows[0].role)
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Utilisateur vérificateur invalide" });
     }
 
     const results = [];
@@ -3054,17 +3064,20 @@ async function batchAssignVerificateur(req, res) {
     for (const dId of dossier_ids) {
       const dossier = await getDossierOr404(dId);
       if (!dossier) continue;
-      if (dossier.statut !== 'EN_ATTENTE_VERIFICATEUR') continue;
+      if (dossier.statut !== "EN_ATTENTE_VERIFICATEUR") continue;
 
       // FIFO : le dossier ne démarre son chrono que si la file est vide
-      const pendingDossier = await hasPendingDossier(id_verificateur, 'Verificateur');
+      const pendingDossier = await hasPendingDossier(
+        id_verificateur,
+        "Verificateur",
+      );
       const timerIsActive = !pendingDossier;
 
       await db.query(
         `UPDATE dossier SET
            id_verificateur = $1,
            statut = 'EN_VERIFICATION',
-           assigned_verification_at = ${timerIsActive ? 'CURRENT_TIMESTAMP' : 'NULL'},
+           assigned_verification_at = ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
            deadline_verif_elapsed_sec = 0,
            deadline_verif_paused_at = NULL,
            updated_at = CURRENT_TIMESTAMP
@@ -3075,7 +3088,7 @@ async function batchAssignVerificateur(req, res) {
       // Pile FIFO
       await joinPileDeadline({
         userId: Number(id_verificateur),
-        role: 'Verificateur',
+        role: "Verificateur",
         nCompte: dossier.n_compte,
         dossierId: dId,
         excludeDossierId: dId,
@@ -3095,12 +3108,14 @@ async function batchAssignVerificateur(req, res) {
         id_user: Number(id_verificateur),
         id_dossier: dId,
         message: `Dossier « ${dossier.nom} » assigné pour vérification`,
-        type: 'VERIFICATION',
+        type: "VERIFICATION",
       });
 
       const updatedDossier = await getDossierOr404(dId);
-      emitToUser(Number(id_verificateur), 'dossier:update', { dossier: updatedDossier });
-      emitToAdmins('dossier:update', { dossier: updatedDossier });
+      emitToUser(Number(id_verificateur), "dossier:update", {
+        dossier: updatedDossier,
+      });
+      emitToAdmins("dossier:update", { dossier: updatedDossier });
 
       results.push(updatedDossier);
     }
@@ -3115,22 +3130,29 @@ async function batchAssignVerificateur(req, res) {
 async function getAutocomplete(req, res) {
   try {
     const { field } = req.query;
-    const allowed = ['n_compte', 'n_be', 'n_soa', 'n_ord', 'exo_budgetaire', 'ref_ecriture'];
+    const allowed = [
+      "n_compte",
+      "n_be",
+      "n_soa",
+      "n_ord",
+      "exo_budgetaire",
+      "ref_ecriture",
+    ];
     if (!allowed.includes(field)) {
-      return res.status(400).json({ error: 'Champ invalide' });
+      return res.status(400).json({ error: "Champ invalide" });
     }
 
     const { rows } = await db.query(
       `SELECT DISTINCT ${field} FROM dossier
        WHERE ${field} IS NOT NULL AND ${field} <> ''
        ORDER BY ${field} DESC
-       LIMIT 20`
+       LIMIT 20`,
     );
 
-    res.json(rows.map(r => r[field]));
+    res.json(rows.map((r) => r[field]));
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Erreur autocomplete' });
+    res.status(500).json({ error: "Erreur autocomplete" });
   }
 }
 
