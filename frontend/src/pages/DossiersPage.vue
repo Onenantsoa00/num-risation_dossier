@@ -103,6 +103,22 @@
             @click.stop
           />
         </template>
+        <template #body-cell-nom="props">
+          <q-td :props="props">
+            <a
+              class="dossier-link"
+              :href="
+                router.resolve({
+                  name: 'dossier-detail',
+                  params: { id: props.row.id },
+                }).href
+              "
+              @click.prevent.stop="openInCurrentTab(props.row)"
+            >
+              {{ props.row.nom }}
+            </a>
+          </q-td>
+        </template>
         <template #body-cell-statut="props">
           <q-td :props="props">
             <q-badge :color="statusColor(props.row.statut)" class="status-chip">
@@ -233,17 +249,6 @@
                 ><q-icon name="visibility"
               /></q-item-section>
               <q-item-section>Ouvrir le dossier</q-item-section>
-            </q-item>
-            <q-item
-              v-if="contextMenuRow"
-              clickable
-              v-close-popup
-              @click="openInNewTab(contextMenuRow)"
-            >
-              <q-item-section avatar
-                ><q-icon name="open_in_new"
-              /></q-item-section>
-              <q-item-section>Ouvrir dans un nouvel onglet</q-item-section>
             </q-item>
             <q-item
               v-if="
@@ -553,28 +558,29 @@ async function batchAssign() {
 }
 
 function onRowContextMenu(evt, row) {
+  // Si le clic droit est effectué sur le vrai lien du nom du dossier,
+  // on laisse Chrome afficher son menu contextuel NATIF.
+  const target = evt.target instanceof Element ? evt.target : null;
+
+  if (target?.closest(".dossier-link")) {
+    return;
+  }
+
+  // Pour le reste de la ligne, on conserve notre menu personnalisé.
   evt.preventDefault();
   evt.stopPropagation();
+
   contextMenuRow.value = row;
-  contextMenuAnchor.value = { x: evt.clientX, y: evt.clientY };
+  contextMenuAnchor.value = {
+    x: evt.clientX,
+    y: evt.clientY,
+  };
+
   showContextMenu.value = false;
+
   requestAnimationFrame(() => {
     showContextMenu.value = true;
   });
-}
-
-function openInCurrentTab(row) {
-  if (!row?.id) return;
-  router.push({ name: "dossier-detail", params: { id: row.id } });
-}
-
-function openInNewTab(row) {
-  if (!row?.id) return;
-  const resolved = router.resolve({
-    name: "dossier-detail",
-    params: { id: row.id },
-  });
-  window.open(resolved.href, "_blank", "noopener,noreferrer");
 }
 
 function confirmDelete(row) {
@@ -617,5 +623,16 @@ onMounted(() => {
   border-radius: 50%;
   display: inline-block;
   flex: 0 0 auto;
+}
+
+.dossier-link {
+  color: var(--q-primary);
+  text-decoration: none;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.dossier-link:hover {
+  text-decoration: underline;
 }
 </style>
