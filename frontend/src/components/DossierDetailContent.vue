@@ -637,6 +637,62 @@
               />
             </template>
 
+            <q-select
+              v-if="dossier.statut === 'EN_VALIDATION'"
+              v-model="idArchiveur"
+              :options="filteredArchiveurs"
+              label="Responsable archivage *"
+              outlined
+              dense
+              emit-value
+              map-options
+              use-input
+              input-debounce="200"
+              @filter="filterArchiveurs"
+              popup-content-class="fullscreen-select-popup"
+              class="q-mb-md"
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section avatar>
+                    <q-avatar size="40px" color="warning" text-color="white">
+                      <img
+                        v-if="scope.opt.image"
+                        :src="scope.opt.image"
+                        alt="Photo"
+                        @error="$event.target.style.display = 'none'"
+                      />
+                      <span v-else>{{ initials(scope.opt) }}</span>
+                    </q-avatar>
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                    <q-item-label caption>
+                      IM : {{ scope.opt.im || "—" }} —
+                      {{ scope.opt.nb_dossiers || 0 }} dossier(s) assigné(s)
+                      <span v-if="scope.opt.en_conge" class="text-negative">
+                        — En congé</span
+                      >
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+              <template #selected-item="scope">
+                <q-chip dense class="q-ma-none">
+                  <q-avatar size="28px" color="warning" text-color="white">
+                    <img
+                      v-if="scope.opt.image"
+                      :src="scope.opt.image"
+                      alt="Photo"
+                      @error="$event.target.style.display = 'none'"
+                    />
+                    <span v-else>{{ initials(scope.opt) }}</span>
+                  </q-avatar>
+                  {{ scope.opt.label }}
+                </q-chip>
+              </template>
+            </q-select>
+
             <div class="row q-col-gutter-md">
               <div class="col-12 col-md-4">
                 <q-btn
@@ -658,7 +714,10 @@
                   label="Valider"
                   class="full-width"
                   unelevated
-                  :disable="!commentaire.trim()"
+                  :disable="
+                    !commentaire.trim() ||
+                    (dossier.statut === 'EN_VALIDATION' && !idArchiveur)
+                  "
                   @click="decide('valider')"
                 />
               </div>
