@@ -2897,6 +2897,20 @@ async function deleteOldLinked(req, res) {
     try {
       await client.query("BEGIN");
 
+      // Supprimer l'archive éventuelle de l'ancien dossier
+      // (fk_archive_dossier est ON DELETE RESTRICT : sans ça, le DELETE
+      // du dossier échoue si l'ancien dossier a été archivé)
+      await client.query(`DELETE FROM archive WHERE id_dossier = $1`, [
+        oldDossierId,
+      ]);
+
+      // Retirer tout lien depuis d'autres dossiers vers l'ancien dossier
+      // (par sécurité, si plusieurs dossiers pointaient vers lui)
+      await client.query(
+        `UPDATE dossier SET dossier_lie_id = NULL WHERE dossier_lie_id = $1`,
+        [oldDossierId],
+      );
+
       // Supprimer les traitements de l'ancien dossier
       await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [
         oldDossierId,
@@ -2915,9 +2929,15 @@ async function deleteOldLinked(req, res) {
       // Supprimer le dossier lui-même
       await client.query(`DELETE FROM dossier WHERE id = $1`, [oldDossierId]);
 
-      // Retirer le lien du nouveau dossier
+      // Retirer le lien du nouveau dossier et désactiver la comparaison :
+      // une fois l'ancien dossier supprimé, la vue « Ancien / Nouveau »
+      // n'a plus de sens — seul le nouveau dossier doit s'afficher.
       await client.query(
-        `UPDATE dossier SET dossier_lie_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        `UPDATE dossier
+         SET dossier_lie_id = NULL,
+             comparaison_active = FALSE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
         [dossier.id],
       );
 

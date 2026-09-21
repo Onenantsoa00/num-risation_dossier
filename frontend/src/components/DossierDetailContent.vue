@@ -1908,6 +1908,9 @@ const canReuploadVersion = computed(() => {
 const showCompareView = computed(() => {
   // Si on a un dossier lié, on affiche la vue côte à côte (pas le compare)
   if (dossierLie.value) return false;
+  // La comparaison doit être explicitement activée : après la suppression
+  // de l'ancien dossier, comparaison_active = FALSE → seul le nouveau
+  // dossier s'affiche (pas de faux panneau « Ancien dossier »).
   if (!dossier.value?.comparaison_active) return false;
   return Number(dossier.value.version) > 1 || !!previousVersionFile.value;
 });

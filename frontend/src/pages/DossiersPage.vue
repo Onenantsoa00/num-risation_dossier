@@ -280,7 +280,7 @@
           <q-card-section class="q-pt-none">
             <q-select
               v-model="batchVerificateurId"
-              :options="verificateurs"
+              :options="filteredVerificateurs"
               label="Vérificateur *"
               outlined
               dense
@@ -289,6 +289,7 @@
               use-input
               input-debounce="200"
               @filter="filterVerificateurs"
+              @popup-show="resetVerificateurFilter"
             >
               <template #option="scope">
                 <q-item v-bind="scope.itemProps" :disable="scope.opt.en_conge">
@@ -524,11 +525,25 @@ async function loadVerificateurs() {
 
 function filterVerificateurs(val, update) {
   update(() => {
-    const needle = val.toLowerCase();
-    filteredVerificateurs.value = verificateurs.value.filter(
-      (v) => v.label.toLowerCase().indexOf(needle) > -1,
-    );
+    const needle = (val || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, ""); // ignore les accents
+    filteredVerificateurs.value = needle
+      ? verificateurs.value.filter((v) =>
+          v.label
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .includes(needle),
+        )
+      : verificateurs.value;
   });
+}
+
+function resetVerificateurFilter() {
+  // À l'ouverture du menu déroulant : afficher toute la liste
+  filteredVerificateurs.value = verificateurs.value;
 }
 
 async function batchAssign() {

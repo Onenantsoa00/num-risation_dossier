@@ -22,7 +22,7 @@ frontend/src/components/DossierFilePreview.vue
         </div>
       </div>
 
-      <div class="row items-center no-wrap q-gutter-xs">
+      <div class="row items-center no-wrap q-gutter-xs" style="flex-shrink: 0">
         <q-btn
           v-if="canDownload"
           flat
@@ -463,6 +463,14 @@ onUnmounted(() => {
   display: flex;
 
   align-items: center;
+
+  /* Les icônes (download / plein écran) ne doivent jamais être écrasées
+     par un nom de fichier trop long. */
+  flex-wrap: nowrap;
+}
+
+.file-preview__header .q-btn {
+  flex-shrink: 0;
 }
 
 /* =========================

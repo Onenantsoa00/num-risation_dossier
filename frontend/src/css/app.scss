@@ -17,6 +17,13 @@ body {
   margin: 0 auto;
 }
 
+/* Utilitaire : permet à un enfant flex de rétrécir sous la taille de son
+   contenu — sans lui, un texte long (ellipsis) pousse les boutons voisins
+   hors du conteneur (ex. bouton « Plein écran » du header d'aperçu). */
+.min-width-0 {
+  min-width: 0;
+}
+
 .page-title {
   font-size: 1.55rem;
   font-weight: 700;
