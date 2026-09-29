@@ -73,6 +73,7 @@ router.post(
 );
 router.post("/:id/retour-dispatch", dossierCtrl.returnToDispatch);
 router.get("/:id/export", dossierCtrl.exportDossier);
+router.post("/export-zip", dossierCtrl.exportDossiersZip);
 router.get("/:id/preview-version/:version", dossierCtrl.previewVersion);
 router.get("/:id/preview", dossierCtrl.previewFile);
 router.get("/:id/download", dossierCtrl.downloadFile);

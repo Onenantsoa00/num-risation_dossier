@@ -34,6 +34,24 @@ const {
 } = require("../services/dossierWorkflow");
 const { uploadDir } = require("../middleware/upload");
 
+// ============================================================
+// Historique des commentaires par version.
+// Figé le commentaire courant sous le numéro de version du dossier
+// au moment de l'enregistrement (upsert : une ligne par version).
+// ============================================================
+async function snapshotCommentaire(client, dossierId, version, commentaire, userId) {
+  if (!commentaire || !String(commentaire).trim()) return;
+  await (client || db).query(
+    `INSERT INTO dossier_commentaire_historique
+       (id_dossier, version, commentaire, created_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (id_dossier, version)
+     DO UPDATE SET commentaire = EXCLUDED.commentaire,
+                   created_by = EXCLUDED.created_by`,
+    [dossierId, version, String(commentaire).trim(), userId || null],
+  );
+}
+
 const DOSSIER_SELECT = `
   SELECT
     d.*,
@@ -492,6 +510,27 @@ async function getOne(req, res) {
       ? await getPreviousVersion(dossier.id, dossier.version)
       : null;
 
+    // Historique des commentaires par version (lecture seule côté UI).
+    // On renvoie tous les états sauvegardés SAUF celui qui correspond au
+    // commentaire courant de la version courante (sinon redondant) : dès
+    // qu'un nouveau commentaire est enregistré, l'ancien apparaît donc
+    // automatiquement en gris au-dessus du champ.
+    const { rows: allCommentaireHistorique } = await db.query(
+      `SELECT version, commentaire
+         FROM dossier_commentaire_historique
+        WHERE id_dossier = $1
+        ORDER BY version ASC`,
+      [dossier.id],
+    );
+    const currentCommentaire = String(dossier.commentaire || "").trim();
+    const commentaireHistorique = allCommentaireHistorique.filter(
+      (h) =>
+        !(
+          Number(h.version) === Number(dossier.version || 1) &&
+          String(h.commentaire || "").trim() === currentCommentaire
+        ),
+    );
+
     const enriched = await enrichDossierWithDeadline(
       dossier,
       req.user.id,
@@ -517,6 +556,7 @@ async function getOne(req, res) {
       ...enriched,
       traitements: traitements.rows,
       versions,
+      commentaire_historique: commentaireHistorique,
       previous_version: previousVersion,
       dossier_lie,
     });
@@ -696,6 +736,40 @@ async function create(req, res) {
   }
 }
 
+// ============================================================
+// Suppression en cascade d'un dossier (utilisé par la chaîne de
+// réimports : on ne garde que les 2 derniers dossiers).
+// À appeler à l'intérieur d'une transaction ouverte.
+// ============================================================
+async function deleteDossierCascade(client, dossierId) {
+  // fk_archive_dossier est ON DELETE RESTRICT : purger l'archive
+  // éventuelle avant de supprimer le dossier.
+  await client.query(`DELETE FROM archive WHERE id_dossier = $1`, [
+    dossierId,
+  ]);
+
+  // Retirer tout lien pointant vers ce dossier (par sécurité)
+  await client.query(
+    `UPDATE dossier SET dossier_lie_id = NULL WHERE dossier_lie_id = $1`,
+    [dossierId],
+  );
+
+  await client.query(`DELETE FROM traitement WHERE id_dossier = $1`, [
+    dossierId,
+  ]);
+  await client.query(`DELETE FROM notification WHERE id_dossier = $1`, [
+    dossierId,
+  ]);
+  await client.query(`DELETE FROM dossier_version WHERE id_dossier = $1`, [
+    dossierId,
+  ]);
+  await client.query(
+    `DELETE FROM dossier_commentaire_historique WHERE id_dossier = $1`,
+    [dossierId],
+  );
+  await client.query(`DELETE FROM dossier WHERE id = $1`, [dossierId]);
+}
+
 async function confirmReimport(req, res) {
   let tempFilePath = null;
   let finalFilePath = null;
@@ -739,26 +813,44 @@ async function confirmReimport(req, res) {
       await client.query("BEGIN");
 
       // ================================================================
-      // 1. Créer un NOUVEAU dossier (ne pas modifier l'ancien)
+      // 1. Créer un NOUVEAU dossier (ne pas modifier l'ancien).
+      //    Nom auto-incrémenté : X → X(2) → X(3) → X(4)… On retire le
+      //    suffixe (n) du nom du dossier réimporté, puis on cherche le
+      //    premier numéro libre en base ET sur le disque.
       // ================================================================
-      const newVersion = 2;
       const extension = path.extname(req.file.originalname).toLowerCase();
       const baseName = (dossier.nom || `dossier_${dossier.id}`).replace(
         /\(\d+\)$/,
         "",
       );
-      const versionedName = `${baseName}(2)`;
-      const finalFileName = `${versionedName}${extension}`;
+
+      // Noms déjà pris : fichiers des dossiers de la même chaîne en base
+      // (baseName, baseName(2), …) + tout ce qui existe sur le disque.
+      const { rows: chainRows } = await client.query(
+        `SELECT fichier_original FROM dossier
+          WHERE (nom = $1 OR nom LIKE $2) AND fichier_original IS NOT NULL`,
+        [baseName, `${baseName}(%`],
+      );
+      const takenNames = new Set(
+        chainRows.map((r) => String(r.fichier_original).toLowerCase()),
+      );
+      for (const f of await fs.promises.readdir(uploadDir)) {
+        takenNames.add(f.toLowerCase());
+      }
+
+      let suffix = 2;
+      let versionedName;
+      let finalFileName;
+      do {
+        versionedName = `${baseName}(${suffix})`;
+        finalFileName = `${versionedName}${extension}`;
+        suffix += 1;
+      } while (takenNames.has(finalFileName.toLowerCase()));
+
+      const newVersion = suffix - 1;
 
       tempFilePath = path.join(uploadDir, req.file.filename);
       finalFilePath = path.join(uploadDir, finalFileName);
-
-      if (fs.existsSync(finalFilePath)) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          error: `Le fichier "${finalFileName}" existe déjà.`,
-        });
-      }
 
       await fs.promises.rename(tempFilePath, finalFilePath);
       tempFilePath = null;
@@ -796,12 +888,71 @@ async function confirmReimport(req, res) {
 
       const newDossier = newDossierRows[0];
 
+      // ================================================================
+      // 2. Ne garder que les DEUX derniers dossiers de la chaîne.
+      //    On remonte la chaîne (dossier_lie_id) depuis le dossier
+      //    réimporté ; avec le nouveau dossier, si la chaîne dépasse
+      //    2 membres, les plus anciens sont supprimés :
+      //      X   → X(2)          : rien à supprimer
+      //      X   → X(2) → X(3)   : X est supprimé → reste X(2), X(3)
+      //      X(2) → X(3) → X(4)  : X(2) est supprimé → reste X(3), X(4)
+      // ================================================================
+      const deletedNames = [];
+      const prunedFiles = [];
+      {
+        // Le nouveau dossier compte dans la chaîne → on garde le
+        // réimporté + son prédécesseur, on supprime les suivants.
+        const chain = [];
+        let cursorId = dossier.id; // le « précédent » du nouveau dossier
+        const seen = new Set();
+        while (cursorId && !seen.has(Number(cursorId))) {
+          seen.add(Number(cursorId));
+          const { rows: curRows } = await client.query(
+            `SELECT id, nom, fichier_original, dossier_lie_id FROM dossier WHERE id = $1`,
+            [cursorId],
+          );
+          if (!curRows[0]) break;
+          chain.push(curRows[0]);
+          cursorId = curRows[0].dossier_lie_id;
+        }
+        for (const toDelete of chain.slice(1)) {
+          await deleteDossierCascade(client, toDelete.id);
+          deletedNames.push(toDelete.nom);
+          if (toDelete.fichier_original) {
+            prunedFiles.push(toDelete.fichier_original);
+          }
+        }
+      }
+
       // Version initiale du nouveau dossier
       await client.query(
         `INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
          VALUES ($1, 1, $2, FALSE)
          ON CONFLICT (id_dossier, version) DO NOTHING`,
         [newDossier.id, dossier.fichier_original],
+      );
+
+      // Figer le commentaire de l'ancien dossier sous SA version :
+      // la chaîne en héritera lors du transfert ci-dessous (v1..v_n).
+      await snapshotCommentaire(
+        client,
+        dossier.id,
+        dossier.version || 1,
+        dossier.commentaire,
+        req.user.id,
+      );
+
+      // Historique des commentaires : transférer les commentaires figés
+      // de l'ancien dossier au nouveau (versions 1..n conservées avec les
+      // mêmes numéros, sauf la version du nouveau déjà écrite = upsert).
+      await client.query(
+        `INSERT INTO dossier_commentaire_historique
+           (id_dossier, version, commentaire, created_by, created_at)
+         SELECT $1, version, commentaire, created_by, created_at
+           FROM dossier_commentaire_historique
+          WHERE id_dossier = $2
+            ON CONFLICT (id_dossier, version) DO NOTHING`,
+        [newDossier.id, dossier.id],
       );
 
       await client.query(
@@ -844,6 +995,61 @@ async function confirmReimport(req, res) {
       }
 
       await client.query("COMMIT");
+
+      // Fichiers sur disque des dossiers retirés : supprimer seulement
+      // s'ils ne sont référencés par aucun dossier/version survivant
+      // (la version 1 d'un dossier référence souvent le fichier de son
+      // prédécesseur pour la comparaison). On balaie aussi les autres
+      // fichiers de la chaîne devenus orphelins lors d'un réimport
+      // précédent.
+      {
+        const escapedBase = baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const chainFileRe = new RegExp(
+          `^${escapedBase}(\\(\\d+\\))?\\.\\w+$`,
+          "i",
+        );
+        let candidates = [];
+        try {
+          candidates = (await fs.promises.readdir(uploadDir)).filter((f) =>
+            chainFileRe.test(f),
+          );
+        } catch {
+          /* répertoire illisible — ignorer */
+        }
+        for (const file of prunedFiles) {
+          if (!candidates.includes(file)) candidates.push(file);
+        }
+        for (const file of candidates) {
+          try {
+            const { rows: refs } = await db.query(
+              `SELECT 1 FROM dossier WHERE fichier_original = $1
+               UNION ALL
+               SELECT 1 FROM dossier_version WHERE fichier_original = $1
+               LIMIT 1`,
+              [file],
+            );
+            if (refs.length === 0) {
+              await fs.promises
+                .unlink(path.join(uploadDir, file))
+                .catch(() => {});
+            }
+          } catch {
+            /* fichier déjà absent — ignorer */
+          }
+        }
+      }
+
+      // Traçabilité : dossiers retirés automatiquement de la chaîne
+      if (deletedNames.length > 0) {
+        await audit({
+          id_user: req.user.id,
+          action: "AUTO_DELETE_OLD_CHAIN",
+          table_name: "dossier",
+          record_id: newDossier.id,
+          details: { supprimes: deletedNames, nouveau: versionedName },
+          ip_address: req.ip,
+        });
+      }
 
       // Notification au vérificateur du nouveau dossier
       if (newDossier.id_verificateur) {
@@ -1078,7 +1284,15 @@ async function comment(req, res) {
 
     // ------------------------------------------------------------
     // 4. Mettre à jour le commentaire courant du dossier
+    //    et figer l'ancien dans l'historique par version
     // ------------------------------------------------------------
+    await snapshotCommentaire(
+      null,
+      dossier.id,
+      dossier.version || 1,
+      dossier.commentaire,
+      req.user.id,
+    );
     await db.query(
       `
         UPDATE dossier
@@ -1228,6 +1442,15 @@ async function sendToValidateur(req, res) {
     );
     const valTimerIsActive = !pendingValDossier;
 
+    // Figer le commentaire de la version courante avant transmission
+    await snapshotCommentaire(
+      null,
+      dossier.id,
+      dossier.version || 1,
+      commentaire || dossier.commentaire,
+      req.user.id,
+    );
+
     await db.query(
       `UPDATE dossier SET
          id_validateur = $1,
@@ -1375,6 +1598,15 @@ async function decide(req, res) {
     try {
       await client.query("BEGIN");
 
+      // Figer le commentaire de la version courante avant la décision
+      await snapshotCommentaire(
+        client,
+        dossier.id,
+        dossier.version || 1,
+        commentaire,
+        req.user.id,
+      );
+
       await client.query(
         `
     UPDATE dossier SET
@@ -1517,6 +1749,15 @@ async function adminAction(req, res) {
         ? !(await hasPendingDossier(verifId, "Verificateur"))
         : false;
 
+      // Figer le commentaire de la version courante
+      await snapshotCommentaire(
+        null,
+        dossier.id,
+        dossier.version || 1,
+        commentaire,
+        req.user.id,
+      );
+
       await db.query(
         `
           UPDATE dossier
@@ -1622,6 +1863,15 @@ async function returnToDispatch(req, res) {
         `UPDATE dossier SET commentaire = $1, statut = 'RETOUR_DISPATCH', updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
         [commentaire, dossier.id],
+      );
+
+      // Figer le commentaire de la version courante dans l'historique
+      await snapshotCommentaire(
+        client,
+        dossier.id,
+        dossier.version || 1,
+        commentaire,
+        req.user.id,
       );
 
       if (ecraser === true || ecraser === "true") {
@@ -2628,6 +2878,171 @@ async function exportDossier(req, res) {
   }
 }
 
+// ============================================================
+// Export ZIP multi-dossiers (rôle Dispatch).
+// Un dossier par sous-dossier : PDF original + commentaire_to_ordsec.
+// Statuts autorisés : VALIDÉ, RETOUR DISPATCH, REJETÉ.
+// ============================================================
+async function exportDossiersZip(req, res) {
+  try {
+    if (req.user.role !== "Dispatch") {
+      return res
+        .status(403)
+        .json({ error: "Export réservé au rôle Dispatch." });
+    }
+
+    const ids = (req.body?.dossier_ids || [])
+      .map((n) => Number(n))
+      .filter((n) => Number.isInteger(n) && n > 0);
+
+    if (ids.length === 0) {
+      return res.status(400).json({ error: "Aucun dossier sélectionné." });
+    }
+    if (ids.length > 100) {
+      return res
+        .status(400)
+        .json({ error: "Maximum 100 dossiers par export." });
+    }
+
+    const ALLOWED = ["VALIDE", "RETOUR_DISPATCH", "REJETE"];
+    const dossiers = [];
+    for (const id of ids) {
+      const d = await getDossierOr404(id);
+      // Sécurité : le dossier doit appartenir au dispatch ET avoir un
+      // statut final autorisé.
+      if (
+        d &&
+        d.id_dispatch === req.user.id &&
+        ALLOWED.includes(d.statut)
+      ) {
+        dossiers.push(d);
+      }
+    }
+
+    if (dossiers.length === 0) {
+      return res.status(400).json({
+        error:
+          "Aucun dossier éligible (statuts autorisés : Validé, Retour dispatch, Rejeté).",
+      });
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(
+        `dossiers_export_${new Date().toISOString().slice(0, 10)}.zip`,
+      )}"`,
+    );
+    res.setHeader("Cache-Control", "no-store");
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.on("error", (err) => {
+      console.error("Erreur archiver ZIP multiple :", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erreur export ZIP" });
+      }
+    });
+    archive.pipe(res);
+
+    const safeName = (nom, id) =>
+      (nom || `dossier_${id}`)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._\-\s]/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/^[-_.]+|[-_.]+$/g, "")
+        .trim() || `dossier_${id}`;
+
+    const usedDirs = new Set();
+
+    for (const dossier of dossiers) {
+      let dirName = safeName(dossier.nom, dossier.id);
+      let n = 2;
+      while (usedDirs.has(dirName)) {
+        dirName = `${safeName(dossier.nom, dossier.id)}(${n++})`;
+      }
+      usedDirs.add(dirName);
+
+      // PDF commentaire à l'ORDSEC (dernier commentaire du dossier)
+      try {
+        const ordsecPdf = new PDFDocument({ margin: 60, size: "A4" });
+        const chunks = [];
+        ordsecPdf.on("data", (c) => chunks.push(c));
+        const pdfDone = new Promise((resolve, reject) => {
+          ordsecPdf.on("end", resolve);
+          ordsecPdf.on("error", reject);
+        });
+
+        ordsecPdf
+          .font("Helvetica-Bold")
+          .fontSize(18)
+          .text("COMMENTAIRE À L'ORDSEC", { align: "center" });
+        ordsecPdf.moveDown(1.5);
+        ordsecPdf.font("Helvetica-Bold").fontSize(12).text("Informations du dossier");
+        ordsecPdf.moveDown(0.5);
+        ordsecPdf.font("Helvetica").fontSize(11);
+        ordsecPdf.text(`Dossier : ${dossier.nom || "-"}`);
+        ordsecPdf.text(`N° compte : ${dossier.n_compte || "-"}`);
+        ordsecPdf.text(`N° BE : ${dossier.n_be || "-"}`);
+        ordsecPdf.text(`N° SOA : ${dossier.n_soa || "-"}`);
+        ordsecPdf.text(`N° ORD : ${dossier.n_ord || "-"}`);
+        ordsecPdf.text(`Exercice budgétaire : ${dossier.exo_budgetaire || "-"}`);
+        ordsecPdf.moveDown(1.5);
+        ordsecPdf.font("Helvetica-Bold").fontSize(13).text("Commentaire");
+        ordsecPdf.moveDown(0.7);
+        ordsecPdf
+          .font("Helvetica")
+          .fontSize(11)
+          .text(
+            dossier.commentaire?.trim() ? dossier.commentaire.trim() : "Aucun commentaire.",
+            { align: "left", width: 470 },
+          );
+        ordsecPdf.moveDown(1.5);
+        ordsecPdf
+          .font("Helvetica-Bold")
+          .fontSize(10)
+          .text(`Version du dossier : ${dossier.version || 1}`);
+        ordsecPdf.moveDown(2);
+        ordsecPdf.end();
+
+        await pdfDone;
+        archive.append(Buffer.concat(chunks), {
+          name: `${dirName}/commentaire_to_ordsec.pdf`,
+        });
+      } catch (e) {
+        console.warn(`PDF ordsec impossible pour #${dossier.id} :`, e.message);
+      }
+
+      // Fichier original du dossier
+      if (dossier.fichier_original) {
+        const filePath = path.join(uploadDir, dossier.fichier_original);
+        if (fs.existsSync(filePath)) {
+          archive.file(filePath, {
+            name: `${dirName}/${dossier.fichier_original}`,
+          });
+        } else {
+          console.warn(`Fichier introuvable pour #${dossier.id} : ${filePath}`);
+        }
+      }
+    }
+
+    await audit({
+      id_user: req.user.id,
+      action: "EXPORT_ZIP_DOSSIERS",
+      table_name: "dossier",
+      details: { count: dossiers.length, ids: dossiers.map((d) => d.id) },
+      ip_address: req.ip,
+    });
+
+    await archive.finalize();
+  } catch (err) {
+    console.error("Erreur exportDossiersZip :", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Erreur exportation ZIP" });
+    }
+  }
+}
+
 async function previewVersion(req, res) {
   try {
     const dossier = await getDossierOr404(req.params.id);
@@ -3193,6 +3608,7 @@ module.exports = {
   reuploadVersion,
   replaceFile,
   exportDossier,
+  exportDossiersZip,
   formatHumanDate,
   downloadFile,
   archiveDossier,
