@@ -155,6 +155,8 @@
               />
             </div>
 
+            <CommentaireHistorique :historique="commentaireHistorique" />
+
             <q-input
               v-model="commentaire"
               type="textarea"
@@ -299,6 +301,8 @@
                 class="q-ml-sm"
               />
             </div>
+
+            <CommentaireHistorique :historique="commentaireHistorique" />
 
             <q-input
               v-model="commentaire"
@@ -565,6 +569,8 @@
               <q-icon name="admin_panel_settings" />
               <span>Actions administrateur</span>
             </div>
+
+            <CommentaireHistorique :historique="commentaireHistorique" />
 
             <q-input
               v-model="commentaire"
@@ -1096,13 +1102,7 @@
               Commentaire
             </div>
 
-            <div
-              v-if="dossier.commentaire && dossier.commentaire !== commentaire"
-              class="q-mb-sm text-body2 bg-blue-1 q-pa-sm rounded-borders"
-              style="white-space: pre-wrap"
-            >
-              {{ dossier.commentaire }}
-            </div>
+            <CommentaireHistorique :historique="commentaireHistorique" />
 
             <q-input
               v-model="commentaire"
@@ -1585,6 +1585,7 @@ import DossierFilePreview from "components/DossierFilePreview.vue";
 import DossierComparePreview from "components/DossierComparePreview.vue";
 import { useDeadlineTimer } from "src/composables/useDeadlineTimer";
 import DossierTimer from "components/DossierTimer.vue";
+import CommentaireHistorique from "components/CommentaireHistorique.vue";
 import { getSocket } from "boot/socket";
 
 const route = useRoute();
@@ -1611,6 +1612,8 @@ const dossier = ref(null);
 const loading = ref(true);
 const busy = ref(false);
 const commentaire = ref("");
+// Commentaires des versions précédentes (lecture seule, affichés en gris)
+const commentaireHistorique = ref([]);
 const fifoBlockedError = ref("");
 
 const {
@@ -2197,6 +2200,7 @@ async function load() {
     dossier.value = data;
     dossierLie.value = data.dossier_lie || null;
     commentaire.value = data.commentaire || "";
+    commentaireHistorique.value = data.commentaire_historique || [];
 
     // FIFO : vérifier si le dossier est bloqué
     fifoBlockedError.value = data.deadline_waiting
@@ -2322,6 +2326,8 @@ async function saveComment() {
     });
     fifoBlockedError.value = "";
     $q.notify({ type: "positive", message: "Commentaire enregistré" });
+    // L'historique est recalculé côté serveur (l'ancien commentaire est
+    // figé sous la version courante) — recharger pour l'afficher en gris.
     await load();
   } catch (e) {
     handleActionError(e);

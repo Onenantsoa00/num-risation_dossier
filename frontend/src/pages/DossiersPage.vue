@@ -19,6 +19,15 @@
             @click="showBatchAssignDialog = true"
           />
           <q-btn
+            v-if="canExportZip && selectedIds.length > 0"
+            color="positive"
+            icon="folder_zip"
+            :label="`Exporter ZIP (${selectedIds.length})`"
+            unelevated
+            :loading="zipLoading"
+            @click="exportZip"
+          />
+          <q-btn
             v-if="['Dispatch', 'Admin'].includes(auth.role)"
             color="primary"
             icon="upload_file"
@@ -79,7 +88,7 @@
         row-key="id"
         :loading="loading"
         :pagination="{ rowsPerPage: 10 }"
-        :selection="canBatchAssign ? 'multiple' : 'none'"
+        :selection="canSelectRows ? 'multiple' : 'none'"
         v-model:selected="selectedRows"
         @update:selected="onSelectedUpdate"
         @row-click="
@@ -90,14 +99,14 @@
       >
         <template #header-selection>
           <q-checkbox
-            :model-value="allAssignableSelected"
-            :indeterminate="someAssignableSelected && !allAssignableSelected"
-            @update:model-value="toggleSelectAllAssignable"
+            :model-value="allSelectableSelected"
+            :indeterminate="someSelectableSelected && !allSelectableSelected"
+            @update:model-value="toggleSelectAllSelectable"
           />
         </template>
         <template #body-selection="scope">
           <q-checkbox
-            v-if="scope.row.statut === 'EN_ATTENTE_VERIFICATEUR'"
+            v-if="isRowSelectable(scope.row)"
             :model-value="scope.selected"
             @update:model-value="scope.selected = $event"
             @click.stop
@@ -351,36 +360,106 @@ const canBatchAssign = computed(() =>
   ["Admin", "super_admin"].includes(auth.role),
 );
 
-// Multi-select — uniquement EN_ATTENTE_VERIFICATEUR
-const selectedRows = ref([]);
-const selectedIds = computed(() => selectedRows.value.map((r) => r.id));
-
-const assignableRows = computed(() =>
-  rows.value.filter((r) => r.statut === "EN_ATTENTE_VERIFICATEUR"),
+// ============================================================
+// Multi-select par rôle :
+//  - Admin / super_admin : assignation (EN_ATTENTE_VERIFICATEUR)
+//  - Dispatch : export ZIP (VALIDÉ, RETOUR DISPATCH, REJETÉ)
+// ============================================================
+const ZIP_STATUSES = ["VALIDE", "RETOUR_DISPATCH", "REJETE"];
+const canExportZip = computed(() => auth.role === "Dispatch");
+const canSelectRows = computed(
+  () => canBatchAssign.value || canExportZip.value,
 );
 
-const allAssignableSelected = computed(
+const selectedRows = ref([]);
+const selectedIds = computed(() => selectedRows.value.map((r) => r.id));
+const zipLoading = ref(false);
+
+function isRowSelectable(row) {
+  if (["Admin", "super_admin"].includes(auth.role)) {
+    return row.statut === "EN_ATTENTE_VERIFICATEUR";
+  }
+  if (auth.role === "Dispatch") {
+    return ZIP_STATUSES.includes(row.statut);
+  }
+  return false;
+}
+
+const selectableRows = computed(() =>
+  rows.value.filter((r) => isRowSelectable(r)),
+);
+
+const allSelectableSelected = computed(
   () =>
-    assignableRows.value.length > 0 &&
-    assignableRows.value.every((r) =>
+    selectableRows.value.length > 0 &&
+    selectableRows.value.every((r) =>
       selectedRows.value.some((s) => s.id === r.id),
     ),
 );
 
-const someAssignableSelected = computed(() =>
-  assignableRows.value.some((r) =>
+const someSelectableSelected = computed(() =>
+  selectableRows.value.some((r) =>
     selectedRows.value.some((s) => s.id === r.id),
   ),
 );
 
 function onSelectedUpdate(next) {
-  selectedRows.value = (next || []).filter(
-    (r) => r.statut === "EN_ATTENTE_VERIFICATEUR",
-  );
+  selectedRows.value = (next || []).filter((r) => isRowSelectable(r));
 }
 
-function toggleSelectAllAssignable(checked) {
-  selectedRows.value = checked ? [...assignableRows.value] : [];
+function toggleSelectAllSelectable(checked) {
+  selectedRows.value = checked ? [...selectableRows.value] : [];
+}
+
+async function exportZip() {
+  if (selectedIds.value.length === 0) return;
+  zipLoading.value = true;
+  try {
+    const response = await api.post(
+      "/dossiers/export-zip",
+      { dossier_ids: selectedIds.value },
+      { responseType: "blob" },
+    );
+
+    // Nom de fichier depuis Content-Disposition
+    let filename = "dossiers_export.zip";
+    const cd = response.headers?.["content-disposition"];
+    const m = cd && cd.match(/filename="?([^";]+)"?/);
+    if (m) {
+      try {
+        filename = decodeURIComponent(m[1]);
+      } catch {
+        filename = m[1];
+      }
+    }
+
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    $q.notify({
+      type: "positive",
+      message: `${selectedIds.value.length} dossier(s) exporté(s) en ZIP.`,
+    });
+    selectedRows.value = [];
+  } catch (e) {
+    let msg = e.response?.data?.error || "Erreur lors de l'export ZIP.";
+    if (e.response?.data instanceof Blob) {
+      try {
+        msg = JSON.parse(await e.response.data.text()).error || msg;
+      } catch {
+        /* réponse non JSON */
+      }
+    }
+    $q.notify({ type: "negative", message: msg });
+  } finally {
+    zipLoading.value = false;
+  }
 }
 
 // Batch assign
