@@ -107,6 +107,10 @@ git checkout main
 git merge dev
 git push origin main
 
+## redemarage de systeme backend dans le server
+
+sudo systemctl restart ordsec.service
+
 ## sur windows
 
 cd C:\numerisation_dossier

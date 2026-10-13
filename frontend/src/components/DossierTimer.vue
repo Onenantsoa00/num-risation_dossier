@@ -287,4 +287,33 @@ const timerClass = computed(() => ({
 .dossier-timer--warning {
   border-left: 3px solid #fbbf24;
 }
+
+/* ============================================================
+   PETITS ÉCRANS : le compteur à gros chiffres doit tenir dans
+   la largeur disponible (il ne doit pas écraser la page).
+============================================================ */
+@media (max-width: 768px) {
+  .dossier-timer {
+    min-width: 0;
+    padding: 10px 12px;
+  }
+
+  .timer-digits {
+    font-size: 26px;
+    letter-spacing: 2px;
+  }
+
+  .digit-group {
+    min-width: 40px;
+    padding: 3px 6px;
+  }
+
+  .digit-sep {
+    font-size: 22px;
+  }
+
+  .timer-waiting-text {
+    font-size: 14px;
+  }
+}
 </style>

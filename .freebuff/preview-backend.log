@@ -227,3 +227,34 @@ Application disponible sur http://localhost:3000
 [Socket] Utilisateur 2 Verificateur marqué offline
 [Socket] Utilisateur 2 Verificateur déconnecté (sid=F8FTfyuas4X_59kVAABV)
 [Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+Frontend Quasar détecté : /media/aluka/Prop_privé/trav_dev/numerisation_dossier/frontend/dist/spa
+[Socket] Serveur WebSocket initialisé
+[DeadlineMonitor] Surveillance des deadlines démarrée (vérification toutes les 60s)
+API ORDSEC démarrée sur http://0.0.0.0:3000
+Application disponible sur http://localhost:3000
+[Socket] Utilisateur 1 Verificateur connecté (id=5, sid=E41wJiWaLewUcQvJAAAB)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=thvNyJ0Lo_hjpmbwAAAD)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=yGW1cLhsluyq7qRUAAAF)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=Y7NJBTCa5z-W7xf6AAAH)
+[Socket] Utilisateur 1 Validateur déconnecté (sid=Y7NJBTCa5z-W7xf6AAAH)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=OM3ZLmQz7ILUtYabAAAJ)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=OM3ZLmQz7ILUtYabAAAJ)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=f64sjbWzDRJDNoMSAAAL)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=f64sjbWzDRJDNoMSAAAL)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=G1dJTHE9WOzyuQlRAAAN)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=G1dJTHE9WOzyuQlRAAAN)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=0irW5kwlZJSpLPCHAAAP)
+[Socket] Timer déconnexion douce annulé pour user 7

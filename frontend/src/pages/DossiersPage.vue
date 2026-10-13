@@ -85,6 +85,8 @@
         class="surface-card"
         :rows="rows"
         :columns="columns"
+        :visible-columns="visibleColumns"
+        :dense="isSmallScreen"
         row-key="id"
         :loading="loading"
         :pagination="{ rowsPerPage: 10 }"
@@ -485,6 +487,26 @@ const filteredVerificateurs = ref([]);
 const showContextMenu = ref(false);
 const contextMenuAnchor = ref(null);
 const contextMenuRow = ref(null);
+
+// Petits écrans : tableau dense et colonnes secondaires masquées afin que
+// l'essentiel (n°, nom, compte, statut, deadline, actions) reste lisible
+// sans défilement horizontal.
+const isSmallScreen = computed(() => $q.screen.lt.md);
+
+// Quasar n'utilise pas `visible` dans les définitions de colonnes :
+// il faut la prop `visible-columns`. `undefined` = toutes les colonnes.
+const SMALL_SCREEN_COLUMNS = [
+  "id",
+  "nom",
+  "n_compte",
+  "statut",
+  "deadline_at",
+  "deadline",
+  "actions",
+];
+const visibleColumns = computed(() =>
+  isSmallScreen.value ? SMALL_SCREEN_COLUMNS : undefined,
+);
 
 const columns = [
   { name: "id", label: "#", field: "id", align: "left", sortable: true },

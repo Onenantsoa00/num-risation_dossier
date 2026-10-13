@@ -225,10 +225,42 @@ async function hasPendingDossier(userId, role, excludeDossierId = null) {
 }
 
 /**
+ * Ordre canonique de la file FIFO d'un utilisateur pour un rôle.
+ *
+ * ⚠️ Cet ordre DOIT rester identique à celui utilisé pour afficher la liste
+ * des dossiers (dossierController.list). Le dossier en TÊTE de cet ordre est
+ * le seul qui peut être traité ; tous les autres sont bloqués par lui.
+ *
+ * Règles :
+ *  - Validateur : un dossier PRIORITAIRE (réimport après retour dispatch)
+ *    passe devant toute la file ; puis les dossiers EN_VALIDATION ;
+ *  - ensuite, dossier ACTIF avant dossier en attente, puis ordre d'entrée
+ *    dans la file (assigned_*_at, puis updated_at, puis id) → FIFO strict.
+ */
+function queueOrderBy(role, alias = "d") {
+  const a = alias;
+  if (role === "Verificateur") {
+    return `CASE WHEN ${a}.statut = 'EN_VERIFICATION' THEN 0 ELSE 1 END,
+            ${a}.assigned_verification_at ASC NULLS LAST,
+            ${a}.updated_at ASC,
+            ${a}.id ASC`;
+  }
+  if (role === "Validateur") {
+    return `CASE WHEN ${a}.priorite AND ${a}.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
+            CASE WHEN ${a}.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
+            ${a}.assigned_validation_at ASC NULLS LAST,
+            ${a}.updated_at ASC,
+            ${a}.id ASC`;
+  }
+  return `${a}.updated_at DESC`;
+}
+
+/**
  * Démarre le timer du dossier FIFO suivant (assign_verification_at ou assign_validation_at).
- * Ordre : updated_at ASC — identique à l'ordre affiché dans la liste du vérificateur /
- * validateur (assigned_*_at ASC NULLS LAST, updated_at ASC). Un dossier revalidé
- * (updated_at récent) démarre donc après les dossiers déjà en file.
+ * Ordre : `queueOrderBy` — identique à l'ordre affiché dans la liste du
+ * vérificateur / validateur. Un dossier prioritaire (validateur) passe donc
+ * devant toute la file, et un dossier revalidé (updated_at récent) démarre
+ * après les dossiers déjà en file.
  */
 async function startNextQueuedTimer(userId, role) {
   let sql;
@@ -242,19 +274,18 @@ async function startNextQueuedTimer(userId, role) {
   if (await hasActiveDossier(userId, role)) return null;
 
   if (role === "Verificateur") {
-    sql = `SELECT id FROM dossier
-           WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'
-             AND assigned_verification_at IS NULL
-           ORDER BY updated_at ASC LIMIT 1`;
+    sql = `SELECT d.id FROM dossier d
+           WHERE d.id_verificateur = $1 AND d.statut = 'EN_VERIFICATION'
+             AND d.assigned_verification_at IS NULL
+           ORDER BY ${queueOrderBy("Verificateur")} LIMIT 1`;
     updateCol = "assigned_verification_at";
     params = [userId];
   } else if (role === "Validateur") {
     // Un dossier prioritaire en attente passe devant toute la file.
-    sql = `SELECT id FROM dossier
-           WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'
-             AND assigned_validation_at IS NULL
-           ORDER BY CASE WHEN priorite THEN 0 ELSE 1 END,
-                    updated_at ASC LIMIT 1`;
+    sql = `SELECT d.id FROM dossier d
+           WHERE d.id_validateur = $1 AND d.statut = 'EN_VALIDATION'
+             AND d.assigned_validation_at IS NULL
+           ORDER BY ${queueOrderBy("Validateur")} LIMIT 1`;
     updateCol = "assigned_validation_at";
     params = [userId];
   } else {
@@ -362,53 +393,63 @@ async function joinPileDeadline({
 /**
  * Vérifie si un dossier est le PREMIER dans la file FIFO d'un utilisateur.
  * Retourne { isBlocked: true, blockingDossier } si bloqué, sinon { isBlocked: false }.
+ *
+ * Règle : seul le dossier en TÊTE de la file (index 0 dans `queueOrderBy`)
+ * peut travailler. Un dossier est donc bloqué UNIQUEMENT par le dossier de
+ * tête, jamais par un dossier situé après lui.
+ *
+ * C'est ce qui rend toute boucle impossible : si #312 et #313 sont tous les
+ * deux actifs, #312 (entré en premier) est en tête et n'est jamais bloqué ;
+ * #313 est bloqué par #312. Après le traitement de #312, #313 devient la
+ * tête et se débloque — au lieu de se renvoyer mutuellement « traitez
+ * l'autre d'abord ».
+ *
+ * Conséquences directes :
+ *  - le dossier PRIORITAIRE (réimport après retour dispatch) est en tête
+ *    de la file du validateur → jamais bloqué, il passe devant tout le
+ *    monde (règle FIFO spéciale) ;
+ *  - FIFO strict pour le vérificateur et le validateur : premier entré,
+ *    premier traité ;
+ *  - aucun effet pour les autres rôles (Dispatch, Admin, super_admin).
  */
 async function checkFifoOrder(userId, role, dossierId) {
-  let sql;
-
-  // ── Dossier PRIORITAIRE ───────────────────────────────────────
-  // Un dossier réimporté après retour dispatch (priorite = TRUE) double
-  // la file FIFO : il n'est jamais bloqué, et sa présence bloque les
-  // autres dossiers du même validateur tant qu'il n'est pas traité.
-  if (role === "Validateur") {
-    const { rows: ownRows } = await db.query(
-      `SELECT priorite, statut FROM dossier WHERE id = $1`,
-      [dossierId],
-    );
-    const own = ownRows[0];
-    if (own?.priorite && own.statut === "EN_VALIDATION") {
-      return { isBlocked: false };
-    }
-  }
-
-  // Seuls les dossiers ACTIFS (timer démarré, assigned_at IS NOT NULL)
-  // peuvent bloquer. Un dossier en attente FIFO (assigned_at IS NULL) ne
-  // bloque pas un dossier actif — SAUF s'il est prioritaire.
+  let idCol;
+  let statut;
   if (role === "Verificateur") {
-    sql = `SELECT id, nom FROM dossier
-           WHERE id_verificateur = $1
-             AND statut = 'EN_VERIFICATION'
-             AND id <> $2
-             AND assigned_verification_at IS NOT NULL
-           ORDER BY assigned_verification_at ASC, created_at ASC
-           LIMIT 1`;
+    idCol = "id_verificateur";
+    statut = "EN_VERIFICATION";
   } else if (role === "Validateur") {
-    sql = `SELECT id, nom FROM dossier
-           WHERE id_validateur = $1
-             AND statut = 'EN_VALIDATION'
-             AND id <> $2
-             AND (priorite = TRUE OR assigned_validation_at IS NOT NULL)
-           ORDER BY CASE WHEN priorite THEN 0 ELSE 1 END,
-                    assigned_validation_at ASC, created_at ASC
-           LIMIT 1`;
+    idCol = "id_validateur";
+    statut = "EN_VALIDATION";
   } else {
+    // La FIFO ne s'applique qu'au vérificateur et au validateur.
     return { isBlocked: false };
   }
-  const { rows } = await db.query(sql, [userId, dossierId]);
-  if (rows[0]) {
-    return { isBlocked: true, blockingDossier: rows[0] };
+
+  // File complète de l'utilisateur pour ce rôle, dans l'ordre canonique
+  // (identique à l'ordre affiché dans la liste).
+  const { rows } = await db.query(
+    `SELECT d.id, d.nom
+       FROM dossier d
+      WHERE d.${idCol} = $1
+        AND d.statut = $2
+      ORDER BY ${queueOrderBy(role)}`,
+    [userId, statut],
+  );
+
+  const index = rows.findIndex((r) => Number(r.id) === Number(dossierId));
+  if (index <= 0) {
+    // Dossier en tête de file (ou absent de la file) → autorisé.
+    return { isBlocked: false };
   }
-  return { isBlocked: false };
+
+  // Bloqueur unique = dossier de tête. Tous les dossiers bloqués pointent
+  // vers le même dossier → impossible de se bloquer mutuellement.
+  const head = rows[0];
+  return {
+    isBlocked: true,
+    blockingDossier: { id: head.id, nom: head.nom },
+  };
 }
 
 module.exports = {
@@ -426,5 +467,6 @@ module.exports = {
   hasPendingDossier,
   startNextQueuedTimer,
   checkFifoOrder,
+  queueOrderBy,
   joinPileDeadline,
 };

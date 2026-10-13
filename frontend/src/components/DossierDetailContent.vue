@@ -814,6 +814,11 @@
                 "Un dossier plus ancien doit être traité en premier. Vous pourrez interagir avec ce dossier une fois le dossier précédent terminé."
               }}
             </div>
+            <div class="text-caption q-mt-xs text-grey-8">
+              Astuce : seul le premier dossier de votre liste est à traiter ;
+              les suivants se débloquent automatiquement l'un après l'autre
+              (aucun dossier ne vous renverra vers un autre).
+            </div>
           </q-banner>
 
           <!-- =====================================================
@@ -1731,11 +1736,19 @@ const hideCommentSection = computed(() => {
   return auth.role === "Dispatch" || !canComment.value;
 });
 
-/** FIFO : vrai si le verificateur/validateur ne peut pas interagir */
+/** FIFO : vrai si le verificateur/validateur ne peut pas interagir.
+ *  Le serveur indique précisément si CE dossier est en tête de file
+ *  (`fifo_blocked`) : seul le premier dossier de la file est bloquant,
+ *  ce qui empêche toute boucle du type « traiter #312 » ↔ « traiter #313 ».
+ */
 const isFifoBlocked = computed(() => {
   if (!dossier.value) return false;
   if (["Admin", "super_admin"].includes(auth.role)) return false;
-  return !!fifoBlockedError.value || !!dossier.value.deadline_waiting;
+  if (fifoBlockedError.value) return true;
+  if (dossier.value.fifo_blocked !== undefined) {
+    return !!dossier.value.fifo_blocked;
+  }
+  return !!dossier.value.deadline_waiting;
 });
 
 function onDocumentFullscreen(value) {
@@ -2202,9 +2215,13 @@ async function load() {
     commentaire.value = data.commentaire || "";
     commentaireHistorique.value = data.commentaire_historique || [];
 
-    // FIFO : vérifier si le dossier est bloqué
-    fifoBlockedError.value = data.deadline_waiting
-      ? `Ce dossier est en attente dans la file FIFO. Un dossier plus ancien doit être traité en premier.`
+    // FIFO : vérifier si le dossier est bloqué (le serveur renvoie le
+    // dossier de tête qui bloque, pour un message explicite).
+    const bloqueur = data.fifo_blocking_dossier;
+    fifoBlockedError.value = data.fifo_blocked
+      ? bloqueur
+        ? `Le dossier « ${bloqueur.nom} » (#${bloqueur.id}) doit être traité en premier (ordre FIFO).`
+        : `Ce dossier est en attente dans la file FIFO. Un dossier plus ancien doit être traité en premier.`
       : "";
     if (data.id_validateur) {
       idValidateur.value = data.id_validateur;

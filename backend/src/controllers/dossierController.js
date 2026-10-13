@@ -30,6 +30,7 @@ const {
   hasPendingDossier,
   startNextQueuedTimer,
   checkFifoOrder,
+  queueOrderBy,
   joinPileDeadline,
 } = require("../services/dossierWorkflow");
 const { uploadDir } = require("../middleware/upload");
@@ -313,19 +314,12 @@ async function list(req, res) {
     }
 
     let orderBy = "ORDER BY d.updated_at DESC";
-    if (req.user.role === "Verificateur") {
-      orderBy = `ORDER BY
-        CASE WHEN d.statut = 'EN_VERIFICATION' THEN 0 ELSE 1 END,
-        d.assigned_verification_at ASC NULLS LAST,
-        d.updated_at ASC`;
-    } else if (req.user.role === "Validateur") {
-      // Un dossier PRIORITAIRE (réimport après retour dispatch) se place
-      // en tête de liste : il doit être traité en premier, avant la file.
-      orderBy = `ORDER BY
-        CASE WHEN d.priorite AND d.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
-        CASE WHEN d.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
-        d.assigned_validation_at ASC NULLS LAST,
-        d.updated_at ASC`;
+    if (["Verificateur", "Validateur"].includes(req.user.role)) {
+      // Ordre canonique de la file FIFO — le même que celui utilisé par
+      // checkFifoOrder et startNextQueuedTimer. Le premier dossier de la
+      // liste est celui à traiter ; les suivants sont bloqués par lui.
+      // (Validateur : les dossiers PRIORITAIRES passent en tête.)
+      orderBy = `ORDER BY ${queueOrderBy(req.user.role, "d")}`;
     } else if (["Admin", "super_admin"].includes(req.user.role)) {
       params.push(req.user.id);
       const uidParam = `$${i}`;
@@ -368,8 +362,13 @@ async function list(req, res) {
         if (mineVerif || mineValid) {
           d.in_fifo = true;
           if (!markedCurrent) {
+            // Tête de file : c'est CE dossier qu'il faut traiter.
             d.a_traiter = true;
+            d.fifo_blocked = false;
             markedCurrent = true;
+          } else {
+            // Bloqué par le dossier de tête (ordre FIFO).
+            d.fifo_blocked = true;
           }
         }
       }
@@ -550,8 +549,33 @@ async function getOne(req, res) {
     );
 
     // ================================================================
-    // Charger le dossier lié (ancien ou nouveau)
+    // FIFO : indiquer si CE dossier est bloqué (et par quel dossier).
+    // Règle : seul le dossier en TÊTE de la file peut être traité. On ne
+    // bloque donc jamais par un dossier situé après → aucune boucle
+    // possible entre deux dossiers qui se renvoient l'un à l'autre.
+    // La FIFO ne s'applique qu'au vérificateur et au validateur.
     // ================================================================
+    {
+      let fifoRole = null;
+      if (
+        dossier.statut === "EN_VERIFICATION" &&
+        dossier.id_verificateur === req.user.id
+      ) {
+        fifoRole = "Verificateur";
+      } else if (
+        dossier.statut === "EN_VALIDATION" &&
+        dossier.id_validateur === req.user.id
+      ) {
+        fifoRole = "Validateur";
+      }
+      if (fifoRole && req.user.role === fifoRole) {
+        const fifo = await checkFifoOrder(req.user.id, fifoRole, dossier.id);
+        enriched.fifo_blocked = !!fifo.isBlocked;
+        enriched.fifo_blocking_dossier = fifo.isBlocked
+          ? fifo.blockingDossier
+          : null;
+      }
+    }
     let dossier_lie = null;
     if (dossier.dossier_lie_id_ref) {
       dossier_lie = await getDossierOr404(dossier.dossier_lie_id_ref);
