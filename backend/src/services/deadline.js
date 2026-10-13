@@ -331,7 +331,9 @@ async function getDeadlineRemaining(
 
   // FIFO : si assigned_at est NULL, le dossier est en attente derrière
   // un autre dossier actif (l'ordre est géré par startNextQueuedTimer).
-  const waiting = !assignedAt;
+  // Exception : un dossier PRIORITAIRE (réimport après retour dispatch)
+  // n'est jamais « en attente » — il doit être traité en premier.
+  const waiting = !assignedAt && !dossier.priorite;
 
   const now = new Date(nowMs);
 

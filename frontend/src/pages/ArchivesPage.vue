@@ -14,7 +14,7 @@
 
         <!-- ARCHIVAGE RAPIDE -->
         <q-btn
-          v-if="isAdmin"
+          v-if="canQuickArchive"
           color="deep-orange"
           icon="bolt"
           label="Archivage Rapide"
@@ -267,51 +267,123 @@
               <div class="row q-col-gutter-md">
                 <!-- EXERCICE -->
                 <div class="col-12 col-sm-6">
-                  <q-input
+                  <q-select
                     v-model="quickForm.exo_budgetaire"
                     label="Exercice budgétaire *"
                     outlined
                     dense
-                  />
+                    use-input
+                    fill-input
+                    hide-selected
+                    input-debounce="200"
+                    :options="quickSuggestions.exo_budgetaire"
+                    maxlength="4"
+                    @filter="
+                      (val, update) =>
+                        filterQuickField('exo_budgetaire', val, update)
+                    "
+                    @input-value="
+                      (value) => onQuickFieldTyped('exo_budgetaire', value)
+                    "
+                  >
+                    <template #hint>
+                      {{ quickForm.exo_budgetaire.length }}/4 caractères
+                    </template>
+                  </q-select>
                 </div>
 
                 <!-- N° BE -->
                 <div class="col-12 col-sm-6">
-                  <q-input
+                  <q-select
                     v-model="quickForm.n_be"
                     label="N° BE *"
                     outlined
                     dense
-                  />
+                    use-input
+                    fill-input
+                    hide-selected
+                    input-debounce="200"
+                    :options="quickSuggestions.n_be"
+                    maxlength="6"
+                    @filter="
+                      (val, update) => filterQuickField('n_be', val, update)
+                    "
+                    @input-value="(value) => onQuickFieldTyped('n_be', value)"
+                  >
+                    <template #hint>
+                      {{ quickForm.n_be.length }}/6 caractères
+                    </template>
+                  </q-select>
                 </div>
 
                 <!-- N° ORD -->
                 <div class="col-12 col-sm-6">
-                  <q-input
+                  <q-select
                     v-model="quickForm.n_ord"
                     label="N° ORD *"
                     outlined
                     dense
-                  />
+                    use-input
+                    fill-input
+                    hide-selected
+                    input-debounce="200"
+                    :options="quickSuggestions.n_ord"
+                    maxlength="6"
+                    @filter="
+                      (val, update) => filterQuickField('n_ord', val, update)
+                    "
+                    @input-value="(value) => onQuickFieldTyped('n_ord', value)"
+                  >
+                    <template #hint>
+                      {{ quickForm.n_ord.length }}/6 caractères
+                    </template>
+                  </q-select>
                 </div>
 
                 <!-- N° COMPTE -->
                 <div class="col-12 col-sm-6">
-                  <q-input
+                  <q-select
                     v-model="quickForm.n_compte"
                     label="N° compte *"
                     outlined
                     dense
-                  />
+                    use-input
+                    fill-input
+                    hide-selected
+                    input-debounce="200"
+                    :options="quickSuggestions.n_compte"
+                    maxlength="4"
+                    @filter="
+                      (val, update) => filterQuickField('n_compte', val, update)
+                    "
+                    @input-value="
+                      (value) => onQuickFieldTyped('n_compte', value)
+                    "
+                  >
+                    <template #hint>
+                      {{ quickForm.n_compte.length }}/4 caractères
+                    </template>
+                  </q-select>
                 </div>
 
                 <!-- N° SOA -->
                 <div class="col-12 col-sm-6">
-                  <q-input
+                  <q-select
                     v-model="quickForm.n_soa"
                     label="N° SOA *"
                     outlined
                     dense
+                    use-input
+                    fill-input
+                    hide-selected
+                    input-debounce="200"
+                    :options="quickSuggestions.n_soa"
+                    maxlength="18"
+                    hint="Format: XX-XX-X-XXX-XXXXX"
+                    @filter="
+                      (val, update) => filterQuickField('n_soa', val, update)
+                    "
+                    @input-value="onQuickSoaTyped"
                   />
                 </div>
 
@@ -448,15 +520,144 @@ const quickForm = reactive({
   date_fin_dossier: "",
 });
 
+const QUICK_FIELD_LIMITS = {
+  n_compte: 4,
+  n_be: 6,
+  n_soa: 18,
+  n_ord: 6,
+  exo_budgetaire: 4,
+};
+
+const QUICK_AUTOCOMPLETE_FIELDS = Object.keys(QUICK_FIELD_LIMITS);
+
+const quickSuggestions = reactive({
+  n_compte: [],
+  n_be: [],
+  n_soa: [],
+  n_ord: [],
+  exo_budgetaire: [],
+});
+
+const quickApiHistory = reactive({
+  n_compte: [],
+  n_be: [],
+  n_soa: [],
+  n_ord: [],
+  exo_budgetaire: [],
+});
+
 /*
  * ============================================================
  * PERMISSION
  * ============================================================
  */
 
-const isAdmin = computed(() => {
-  return ["Admin", "super_admin"].includes(auth.role);
+const canQuickArchive = computed(() => {
+  return ["i_archive", "Admin", "super_admin"].includes(auth.role);
 });
+
+function sanitizeQuickField(value, maxLength) {
+  return String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, maxLength);
+}
+
+function formatQuickSoa(value) {
+  const raw = String(value || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 13);
+  const parts = [];
+  if (raw.length > 0) parts.push(raw.slice(0, 2));
+  if (raw.length > 2) parts.push(raw.slice(2, 4));
+  if (raw.length > 4) parts.push(raw.slice(4, 5));
+  if (raw.length > 5) parts.push(raw.slice(5, 8));
+  if (raw.length > 8) parts.push(raw.slice(8, 13));
+  return parts.join("-");
+}
+
+function onQuickFieldTyped(field, value) {
+  quickForm[field] = sanitizeQuickField(value, QUICK_FIELD_LIMITS[field]);
+}
+
+function onQuickSoaTyped(value) {
+  quickForm.n_soa = formatQuickSoa(value);
+}
+
+function getQuickAutocompleteHistory() {
+  try {
+    const raw = localStorage.getItem("dossier_autocomplete");
+    const history = raw ? JSON.parse(raw) : [];
+    return Array.isArray(history) ? history : [];
+  } catch {
+    return [];
+  }
+}
+
+function quickLocalHistoryFor(field) {
+  const seen = new Set();
+  return getQuickAutocompleteHistory()
+    .map((entry) => String(entry?.[field] || "").trim())
+    .filter((value) => {
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+}
+
+function mergeQuickSuggestions(field, needle = "") {
+  const seen = new Set();
+  const query = String(needle || "")
+    .trim()
+    .toUpperCase();
+  return [...quickLocalHistoryFor(field), ...(quickApiHistory[field] || [])]
+    .map((value) => String(value || "").trim())
+    .filter((value) => {
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return !query || value.toUpperCase().includes(query);
+    })
+    .slice(0, 20);
+}
+
+async function preloadQuickSuggestions() {
+  await Promise.all(
+    QUICK_AUTOCOMPLETE_FIELDS.map(async (field) => {
+      try {
+        const { data } = await api.get("/dossiers/autocomplete", {
+          params: { field },
+        });
+        quickApiHistory[field] = Array.isArray(data) ? data : [];
+      } catch {
+        quickApiHistory[field] = [];
+      }
+      quickSuggestions[field] = mergeQuickSuggestions(field);
+    }),
+  );
+}
+
+function filterQuickField(field, value, update) {
+  update(() => {
+    quickSuggestions[field] = mergeQuickSuggestions(field, value);
+  });
+}
+
+function saveQuickAutocomplete() {
+  const history = getQuickAutocompleteHistory();
+  history.unshift({
+    ...Object.fromEntries(
+      QUICK_AUTOCOMPLETE_FIELDS.map((field) => [field, quickForm[field]]),
+    ),
+    timestamp: Date.now(),
+  });
+  if (history.length > 50) history.length = 50;
+  try {
+    localStorage.setItem("dossier_autocomplete", JSON.stringify(history));
+  } catch {
+    // L'archivage est déjà effectué côté serveur.
+  }
+}
 
 /*
  * ============================================================
@@ -780,6 +981,26 @@ function validateQuickArchive() {
     return "Le N° SOA est obligatoire.";
   }
 
+  if (quickForm.exo_budgetaire.length !== 4) {
+    return "L'exercice budgétaire doit contenir exactement 4 caractères.";
+  }
+
+  if (quickForm.n_be.length !== 6) {
+    return "Le N° BE doit contenir exactement 6 caractères.";
+  }
+
+  if (quickForm.n_ord.length !== 6) {
+    return "Le N° ORD doit contenir exactement 6 caractères.";
+  }
+
+  if (quickForm.n_compte.length !== 4) {
+    return "Le N° compte doit contenir exactement 4 caractères.";
+  }
+
+  if (quickForm.n_soa.replace(/-/g, "").length !== 13) {
+    return "Le N° SOA doit contenir exactement 13 caractères (XX-XX-X-XXX-XXXXX).";
+  }
+
   if (!quickForm.compte_pc.trim()) {
     return "Le compte Prise en charge est obligatoire.";
   }
@@ -841,6 +1062,8 @@ async function quickArchive() {
       },
     });
 
+    saveQuickAutocomplete();
+
     $q.notify({
       type: "positive",
       icon: "bolt",
@@ -863,7 +1086,10 @@ async function quickArchive() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  preloadQuickSuggestions();
+});
 </script>
 
 <style scoped>

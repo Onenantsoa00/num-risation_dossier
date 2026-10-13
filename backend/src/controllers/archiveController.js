@@ -406,10 +406,10 @@ async function quickArchive(req, res) {
     // 1. Vérification du rôle
     // ==========================================================
 
-    if (!["Admin", "super_admin"].includes(req.user.role)) {
+    if (!["i_archive", "Admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({
         error:
-          "Seul l'Admin ou le super_admin peut effectuer un archivage rapide.",
+          "Seul i_archive, l'Admin ou le super_admin peut effectuer un archivage rapide.",
       });
     }
 

@@ -234,7 +234,10 @@ function canSeeDossier(user, dossier) {
   // ============================================================
   // 3. DISPATCH
   // ============================================================
-  if (user.role === "Dispatch" && dossier.id_dispatch === user.id) {
+  // Tous les dispatchs partagent la même vue : chaque dossier importé
+  // par n'importe quel utilisateur du rôle Dispatch est visible par
+  // tous les autres dispatchs.
+  if (user.role === "Dispatch" && dossier.id_dispatch != null) {
     return true;
   }
 
@@ -270,7 +273,7 @@ function canSeeDossier(user, dossier) {
     user.role === "Dispatch" &&
     ["RETOUR_DISPATCH", "VALIDE", "REJETE"].includes(dossier.statut)
   ) {
-    return dossier.id_dispatch === user.id;
+    return dossier.id_dispatch != null;
   }
 
   return false;
@@ -284,8 +287,9 @@ async function list(req, res) {
     let i = 1;
 
     if (req.user.role === "Dispatch") {
-      where += ` AND d.id_dispatch = $${i++}`;
-      params.push(req.user.id);
+      // Vue partagée entre TOUS les dispatchs : un dossier importé par un
+      // dispatch doit être visible par les autres dispatchs.
+      where += ` AND d.id_dispatch IS NOT NULL`;
     } else if (req.user.role === "Verificateur") {
       where += ` AND d.id_verificateur = $${i++}`;
       params.push(req.user.id);
@@ -315,7 +319,10 @@ async function list(req, res) {
         d.assigned_verification_at ASC NULLS LAST,
         d.updated_at ASC`;
     } else if (req.user.role === "Validateur") {
+      // Un dossier PRIORITAIRE (réimport après retour dispatch) se place
+      // en tête de liste : il doit être traité en premier, avant la file.
       orderBy = `ORDER BY
+        CASE WHEN d.priorite AND d.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
         CASE WHEN d.statut = 'EN_VALIDATION' THEN 0 ELSE 1 END,
         d.assigned_validation_at ASC NULLS LAST,
         d.updated_at ASC`;
@@ -323,6 +330,11 @@ async function list(req, res) {
       params.push(req.user.id);
       const uidParam = `$${i}`;
       orderBy = `ORDER BY
+        CASE
+          WHEN d.priorite AND d.statut = 'EN_VALIDATION' AND d.id_validateur = ${uidParam}
+          THEN 0
+          ELSE 1
+        END,
         CASE
           WHEN (d.statut = 'EN_VERIFICATION' AND d.id_verificateur = ${uidParam})
             OR (d.statut = 'EN_VALIDATION' AND d.id_validateur = ${uidParam})
@@ -790,9 +802,43 @@ async function confirmReimport(req, res) {
       return res.status(400).json({ error: "Le fichier est requis" });
     }
 
-    // Le vérificateur existant reprend le nouveau dossier :
-    // interdit s'il est en congé.
+    // ================================================================
+    // Destination du nouveau dossier
+    // ----------------------------------------------------------------
+    // Règle métier : un dossier réimporté après un RETOUR DISPATCH ne
+    // repasse plus par la vérification. Il part DIRECTEMENT en validation
+    // chez le validateur / admin qui figure dans les « Acteurs » du
+    // dossier (id_validateur), et devient PRIORITAIRE : il se place en
+    // tête de liste et double la file FIFO.
+    //
+    // Repli (aucun validateur dans les acteurs, ou en congé / inactif) :
+    // ancien comportement — le dossier repart chez le vérificateur.
+    // ================================================================
+    let validateurCible = null;
+    if (dossier.id_validateur) {
+      const { rows: valRows } = await db.query(
+        `SELECT u.id, u.actif, r.nom AS role
+           FROM utilisateur u
+           JOIN roles r ON r.id = u.id_roles
+          WHERE u.id = $1`,
+        [dossier.id_validateur],
+      );
+      const v = valRows[0];
+      if (
+        v &&
+        v.actif &&
+        ["Validateur", "Admin", "super_admin"].includes(v.role) &&
+        !(await isUserOnConge(v.id))
+      ) {
+        validateurCible = v.id;
+      }
+    }
+
+    const directValidation = validateurCible !== null;
+
+    // Repli vérification : interdit si le vérificateur est en congé.
     if (
+      !directValidation &&
       dossier.id_verificateur &&
       (await isUserOnConge(dossier.id_verificateur))
     ) {
@@ -802,10 +848,19 @@ async function confirmReimport(req, res) {
       });
     }
 
-    // FIFO : le dossier réimporté rejoint la FIN de la file du vérificateur.
-    // Son timer ne démarre que si la file est vide (aucun dossier actif ni en attente).
-    const timerIsActive = dossier.id_verificateur
-      ? !(await hasPendingDossier(dossier.id_verificateur, "Verificateur"))
+    // FIFO : le dossier réimporté rejoint la FIN de la file du vérificateur
+    // (mode normal). Son timer ne démarre que si la file est vide.
+    const timerIsActive =
+      !directValidation && dossier.id_verificateur
+        ? !(await hasPendingDossier(dossier.id_verificateur, "Verificateur"))
+        : false;
+
+    // Mode prioritaire : le dossier doit être traité en premier. Son timer
+    // démarre immédiatement si le validateur n'a aucun dossier en cours ;
+    // sinon il reste en tête de file (le dossier prioritaire double la
+    // file — startNextQueuedTimer le prendra avant tout le monde).
+    const valTimerIsActive = directValidation
+      ? !(await hasPendingDossier(validateurCible, "Validateur"))
       : false;
 
     const client = await db.connect();
@@ -862,12 +917,16 @@ async function confirmReimport(req, res) {
            nom, n_compte, n_be, n_soa, n_ord, exo_budgetaire,
            commentaire, fichier_original, statut,
            id_dispatch, id_verificateur, id_validateur, dossier_lie_id,
-           version, comparaison_active,
-           assigned_verification_at,
-           deadline_verif_elapsed_sec, deadline_verif_paused_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EN_VERIFICATION',
-           $9, $10, $11, $12, $13, TRUE,
-           ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"}, 0, NULL)
+           version, comparaison_active, priorite,
+           assigned_verification_at, assigned_validation_at,
+           deadline_verif_elapsed_sec, deadline_verif_paused_at,
+           deadline_valid_elapsed_sec, deadline_valid_paused_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+           '${directValidation ? "EN_VALIDATION" : "EN_VERIFICATION"}',
+           $9, $10, $11, $12, $13, TRUE, $14,
+           ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
+           ${directValidation && valTimerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
+           0, NULL, 0, NULL)
          RETURNING *`,
         [
           versionedName,
@@ -880,9 +939,10 @@ async function confirmReimport(req, res) {
           finalFileName,
           req.user.id,
           dossier.id_verificateur,
-          dossier.id_validateur,
+          directValidation ? validateurCible : dossier.id_validateur,
           dossier.id,
           newVersion,
+          directValidation,
         ],
       );
 
@@ -965,11 +1025,12 @@ async function confirmReimport(req, res) {
       // Historique traitement du nouveau dossier — garder l'ancien commentaire
       await client.query(
         `INSERT INTO traitement (id_users, id_dossier, type_traitement, commentaire, statut)
-         VALUES ($1, $2, 'DISPATCH', $3, 'EN_VERIFICATION')`,
+         VALUES ($1, $2, 'DISPATCH', $3, $4)`,
         [
           req.user.id,
           newDossier.id,
           dossier.commentaire || `Réimport du dossier « ${dossier.nom} »`,
+          directValidation ? "EN_VALIDATION" : "EN_VERIFICATION",
         ],
       );
 
@@ -981,9 +1042,19 @@ async function confirmReimport(req, res) {
         [newDossier.id, dossier.id],
       );
 
-      // Pile FIFO du vérificateur : 12h si c'est son premier dossier en file,
-      // sinon +3h/+12h selon le n° compte.
-      if (dossier.id_verificateur) {
+      // Pile de deadline : en validation directe, le dossier entre dans la
+      // pile du validateur (12h si vide, sinon +3h/+12h selon le n° compte).
+      // Sinon : pile FIFO du vérificateur (ancien comportement).
+      if (directValidation) {
+        await joinPileDeadline({
+          userId: Number(validateurCible),
+          role: "Validateur",
+          nCompte: newDossier.n_compte || dossier.n_compte,
+          dossierId: newDossier.id,
+          excludeDossierId: newDossier.id,
+          executor: client,
+        });
+      } else if (dossier.id_verificateur) {
         await joinPileDeadline({
           userId: Number(dossier.id_verificateur),
           role: "Verificateur",
@@ -1051,8 +1122,17 @@ async function confirmReimport(req, res) {
         });
       }
 
-      // Notification au vérificateur du nouveau dossier
-      if (newDossier.id_verificateur) {
+      // Notification au destinataire du nouveau dossier
+      if (directValidation) {
+        // Dossier prioritaire : le validateur des Acteurs doit le traiter
+        // en premier, sans attendre la file FIFO.
+        await createNotification({
+          id_user: Number(validateurCible),
+          id_dossier: newDossier.id,
+          message: `Dossier « ${versionedName} » réimporté après retour dispatch — à valider en PRIORITÉ`,
+          type: "VALIDATION",
+        });
+      } else if (newDossier.id_verificateur) {
         await createNotification({
           id_user: newDossier.id_verificateur,
           id_dossier: newDossier.id,
@@ -1235,7 +1315,7 @@ async function comment(req, res) {
 
       case "RETOUR_DISPATCH":
         roleAutorise =
-          role === "Dispatch" && dossier.id_dispatch === req.user.id;
+          role === "Dispatch" && dossier.id_dispatch != null;
         break;
 
       default:
@@ -1764,6 +1844,7 @@ async function adminAction(req, res) {
           SET
             commentaire = $1,
             statut = 'EN_VERIFICATION',
+            priorite = FALSE,
             id_verificateur = COALESCE($2, id_verificateur),
             assigned_verification_at = ${timerIsActive ? "CURRENT_TIMESTAMP" : "NULL"},
             assigned_validation_at = NULL,
@@ -1974,10 +2055,10 @@ async function reuploadVersion(req, res) {
     // ============================================================
     if (
       !["Admin", "super_admin"].includes(req.user.role) &&
-      dossier.id_dispatch !== req.user.id
+      !dossier.id_dispatch
     ) {
       return res.status(403).json({
-        error: "Ce dossier ne vous appartient pas",
+        error: "Ce dossier n'a pas été importé par le rôle Dispatch",
       });
     }
 
@@ -2908,11 +2989,12 @@ async function exportDossiersZip(req, res) {
     const dossiers = [];
     for (const id of ids) {
       const d = await getDossierOr404(id);
-      // Sécurité : le dossier doit appartenir au dispatch ET avoir un
-      // statut final autorisé.
+      // Sécurité : le dossier doit avoir été importé par le rôle Dispatch
+      // (vue partagée entre tous les dispatchs) ET avoir un statut final
+      // autorisé.
       if (
         d &&
-        d.id_dispatch === req.user.id &&
+        d.id_dispatch != null &&
         ALLOWED.includes(d.statut)
       ) {
         dossiers.push(d);

@@ -130,9 +130,21 @@
         </template>
         <template #body-cell-statut="props">
           <q-td :props="props">
-            <q-badge :color="statusColor(props.row.statut)" class="status-chip">
-              {{ statusLabel(props.row.statut) }}
-            </q-badge>
+            <div class="row items-center no-wrap q-gutter-xs">
+              <q-badge :color="statusColor(props.row.statut)" class="status-chip">
+                {{ statusLabel(props.row.statut) }}
+              </q-badge>
+              <!-- Dossier réimporté après retour dispatch : il double la file
+                   FIFO et doit être traité en premier. -->
+              <q-badge
+                v-if="props.row.priorite && props.row.statut === 'EN_VALIDATION'"
+                color="deep-orange"
+                class="status-chip"
+                title="Dossier réimporté après retour dispatch — à traiter en priorité"
+              >
+                PRIORITÉ
+              </q-badge>
+            </div>
           </q-td>
         </template>
         <template #body-cell-deadline_at="props">

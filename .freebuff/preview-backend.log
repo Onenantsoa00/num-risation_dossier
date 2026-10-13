@@ -1,0 +1,229 @@
+Frontend Quasar détecté : /media/aluka/Prop_privé/trav_dev/numerisation_dossier/frontend/dist/spa
+[Socket] Serveur WebSocket initialisé
+[DeadlineMonitor] Surveillance des deadlines démarrée (vérification toutes les 60s)
+API ORDSEC démarrée sur http://0.0.0.0:3000
+Application disponible sur http://localhost:3000
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=sy26NSRj_S198zr_AAAB)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=cIxXRJwTgHXn6dhZAAAD)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=prv1x13HsCmoq9-FAAAF)
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=sy26NSRj_S198zr_AAAB)
+[Socket] Utilisateur 2 Validateur connecté (id=8, sid=B1RqpS6RXoVnqA7JAAAH)
+[Socket] Utilisateur 2 Validateur déconnecté (sid=B1RqpS6RXoVnqA7JAAAH)
+[Socket] Timer déconnexion douce démarré pour user 8 (30000ms)
+[Socket] Utilisateur 2 Validateur connecté (id=8, sid=cqcxt0yWjknY3dqLAAAJ)
+[Socket] Timer déconnexion douce annulé pour user 8
+[Socket] Utilisateur 2 Validateur marqué offline
+[Socket] Utilisateur 2 Validateur marqué offline
+[Socket] Utilisateur 2 Validateur déconnecté (sid=cqcxt0yWjknY3dqLAAAJ)
+[Socket] Timer déconnexion douce démarré pour user 8 (30000ms)
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=UvsvbggsG1eAp9WKAAAL)
+[Socket] Utilisateur 2 Validateur marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=UvsvbggsG1eAp9WKAAAL)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=UMcx11q9qcxXbVP-AAAN)
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=prv1x13HsCmoq9-FAAAF)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=pgNE9ZpLAWl3n7uRAAAP)
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=pgNE9ZpLAWl3n7uRAAAP)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=FL_vBuJFJJ98WYkMAAAR)
+[Socket] Timer déconnexion douce annulé pour user 4
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=FL_vBuJFJJ98WYkMAAAR)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=PdH2U4ZiOlUVYTiPAAAT)
+[Socket] Timer déconnexion douce annulé pour user 4
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=cIxXRJwTgHXn6dhZAAAD)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=8eRerYAunUL8Ao_hAAAV)
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=UMcx11q9qcxXbVP-AAAN)
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=8eRerYAunUL8Ao_hAAAV)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=PdH2U4ZiOlUVYTiPAAAT)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=a_G_r8bHDIJux9RGAAAX)
+[Socket] Timer déconnexion douce annulé pour user 4
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=cV0jzi8g0XQ3-qNIAAAZ)
+[Socket] Timer déconnexion douce annulé pour user 3
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=a_G_r8bHDIJux9RGAAAX)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=bOkCh4hGIE0YL2hWAAAb)
+[Socket] Timer déconnexion douce annulé pour user 4
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=cV0jzi8g0XQ3-qNIAAAZ)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=SLz6GGsv8aYVycBLAAAd)
+[Socket] Timer déconnexion douce annulé pour user 3
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=SLz6GGsv8aYVycBLAAAd)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=0R5hW32wYerq3SjJAAAf)
+[Socket] Timer déconnexion douce annulé pour user 3
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=bOkCh4hGIE0YL2hWAAAb)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 2 Dispatch connecté (id=4, sid=-8mDrdDE2kPCKg1HAAAh)
+[Socket] Timer déconnexion douce annulé pour user 4
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=0R5hW32wYerq3SjJAAAf)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=tQ02uwGIci-nTu6qAAAj)
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin déconnecté (sid=tQ02uwGIci-nTu6qAAAj)
+[Socket] Timer déconnexion douce démarré pour user 2 (30000ms)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=7VagjiOaVA-ky3zQAAAl)
+[Socket] Timer déconnexion douce annulé pour user 2
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=Cfp7s9dDcvAExbJYAAAn)
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=Cfp7s9dDcvAExbJYAAAn)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 1 Verificateur connecté (id=5, sid=4vFyS2L1TdIlHV_HAAAp)
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 1 Verificateur marqué offline
+[Socket] Utilisateur 1 Verificateur déconnecté (sid=4vFyS2L1TdIlHV_HAAAp)
+[Socket] Timer déconnexion douce démarré pour user 5 (30000ms)
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin déconnecté (sid=7VagjiOaVA-ky3zQAAAl)
+[Socket] Timer déconnexion douce démarré pour user 2 (30000ms)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=eJwKA-Yu3ukpH0dUAAAr)
+[Socket] Timer déconnexion douce annulé pour user 2
+[Socket] Utilisateur 1 Verificateur marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin déconnecté (sid=eJwKA-Yu3ukpH0dUAAAr)
+[Socket] Timer déconnexion douce démarré pour user 2 (30000ms)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=bdFaTV8V1RXigGBwAAAt)
+[Socket] Timer déconnexion douce annulé pour user 2
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin déconnecté (sid=bdFaTV8V1RXigGBwAAAt)
+[Socket] Timer déconnexion douce démarré pour user 2 (30000ms)
+[Socket] Utilisateur 2 Admin connecté (id=2, sid=2qULdPopjm0Y5daXAAAv)
+[Socket] Timer déconnexion douce annulé pour user 2
+[Socket] Utilisateur 1 Verificateur connecté (id=5, sid=84Jyckpl4soXrRPsAAAx)
+[Socket] Utilisateur 1 Verificateur marqué offline
+[Socket] Utilisateur 1 Verificateur déconnecté (sid=84Jyckpl4soXrRPsAAAx)
+[Socket] Timer déconnexion douce démarré pour user 5 (30000ms)
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=O8-fXUUuJ6f3qoaoAAAz)
+[Socket] Utilisateur 1 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=O8-fXUUuJ6f3qoaoAAAz)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=PvzIREgo8Sm6xR-tAAA1)
+[Socket] Timer déconnexion douce annulé pour user 6
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Dispatch déconnecté (sid=-8mDrdDE2kPCKg1HAAAh)
+[Socket] Timer déconnexion douce démarré pour user 4 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=9F4B2U6UzHCKkQDYAAA3)
+[Socket] Utilisateur 2 Dispatch marqué offline
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=PvzIREgo8Sm6xR-tAAA1)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=GqTEfK_KLxj3PUJwAAA5)
+[Socket] Timer déconnexion douce annulé pour user 6
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=9F4B2U6UzHCKkQDYAAA3)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=ZI3iFrdgXDhX1Lw3AAA7)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=GqTEfK_KLxj3PUJwAAA5)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=uozdJMZfPc9UYSEMAAA9)
+[Socket] Timer déconnexion douce annulé pour user 6
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=uozdJMZfPc9UYSEMAAA9)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=XLAxRcLwZxQfiuPZAAA_)
+[Socket] Timer déconnexion douce annulé pour user 6
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=ZI3iFrdgXDhX1Lw3AAA7)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=Evtv_kdHzab_KLh-AABB)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=Evtv_kdHzab_KLh-AABB)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=tUwr9ULm3aGaN_TSAABD)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 2 Admin déconnecté (sid=2qULdPopjm0Y5daXAAAv)
+[Socket] Timer déconnexion douce démarré pour user 2 (30000ms)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=LUt_YKiaxCJ8cSg1AABF)
+[Socket] Utilisateur 2 Admin marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=tUwr9ULm3aGaN_TSAABD)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=PridJ2IYM_zOw4GCAABH)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=LUt_YKiaxCJ8cSg1AABF)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=uEhABeC2sqxYsQbmAABJ)
+[Socket] Timer déconnexion douce annulé pour user 3
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=PridJ2IYM_zOw4GCAABH)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=y12tEer7RKXypn4VAABL)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Validateur déconnecté (sid=y12tEer7RKXypn4VAABL)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=XLAxRcLwZxQfiuPZAAA_)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=uEhABeC2sqxYsQbmAABJ)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=09u94nUTXWppx6G3AABO)
+[Socket] Timer déconnexion douce annulé pour user 6
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=xtd7RFH4xIaKLE0LAABP)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 1 Validateur déconnecté (sid=xtd7RFH4xIaKLE0LAABP)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=09u94nUTXWppx6G3AABO)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch connecté (id=3, sid=LN4Q3xvbjHa50hfAAABR)
+[Socket] Utilisateur 1 Validateur connecté (id=7, sid=n2iFt4h8ND-6n3jXAABT)
+[Socket] Timer déconnexion douce annulé pour user 7
+[Socket] Utilisateur 2 Verificateur connecté (id=6, sid=F8FTfyuas4X_59kVAABV)
+[Socket] Timer déconnexion douce annulé pour user 6
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur marqué offline
+[Socket] Utilisateur 1 Validateur déconnecté (sid=n2iFt4h8ND-6n3jXAABT)
+[Socket] Timer déconnexion douce démarré pour user 7 (30000ms)
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch marqué offline
+[Socket] Utilisateur 1 Dispatch déconnecté (sid=LN4Q3xvbjHa50hfAAABR)
+[Socket] Timer déconnexion douce démarré pour user 3 (30000ms)
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur marqué offline
+[Socket] Utilisateur 2 Verificateur déconnecté (sid=F8FTfyuas4X_59kVAABV)
+[Socket] Timer déconnexion douce démarré pour user 6 (30000ms)

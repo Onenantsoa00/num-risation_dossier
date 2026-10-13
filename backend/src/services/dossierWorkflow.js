@@ -234,6 +234,13 @@ async function startNextQueuedTimer(userId, role) {
   let sql;
   let updateCol;
   let params;
+
+  // Sécurité : ne jamais démarrer un nouveau timer si un dossier est déjà
+  // ACTIF pour cet utilisateur. Cas typique : un dossier prioritaire est
+  // traité avant sa file — le dossier actif restant ne doit pas être
+  // doublé par un timer démarré par erreur.
+  if (await hasActiveDossier(userId, role)) return null;
+
   if (role === "Verificateur") {
     sql = `SELECT id FROM dossier
            WHERE id_verificateur = $1 AND statut = 'EN_VERIFICATION'
@@ -242,10 +249,12 @@ async function startNextQueuedTimer(userId, role) {
     updateCol = "assigned_verification_at";
     params = [userId];
   } else if (role === "Validateur") {
+    // Un dossier prioritaire en attente passe devant toute la file.
     sql = `SELECT id FROM dossier
            WHERE id_validateur = $1 AND statut = 'EN_VALIDATION'
              AND assigned_validation_at IS NULL
-           ORDER BY updated_at ASC LIMIT 1`;
+           ORDER BY CASE WHEN priorite THEN 0 ELSE 1 END,
+                    updated_at ASC LIMIT 1`;
     updateCol = "assigned_validation_at";
     params = [userId];
   } else {
@@ -356,8 +365,25 @@ async function joinPileDeadline({
  */
 async function checkFifoOrder(userId, role, dossierId) {
   let sql;
-  // Seuls les dossiers ACTIFS (timer démarré, assigned_at IS NOT NULL) peuvent bloquer.
-  // Un dossier en attente FIFO (assigned_at IS NULL) ne bloque pas un dossier actif.
+
+  // ── Dossier PRIORITAIRE ───────────────────────────────────────
+  // Un dossier réimporté après retour dispatch (priorite = TRUE) double
+  // la file FIFO : il n'est jamais bloqué, et sa présence bloque les
+  // autres dossiers du même validateur tant qu'il n'est pas traité.
+  if (role === "Validateur") {
+    const { rows: ownRows } = await db.query(
+      `SELECT priorite, statut FROM dossier WHERE id = $1`,
+      [dossierId],
+    );
+    const own = ownRows[0];
+    if (own?.priorite && own.statut === "EN_VALIDATION") {
+      return { isBlocked: false };
+    }
+  }
+
+  // Seuls les dossiers ACTIFS (timer démarré, assigned_at IS NOT NULL)
+  // peuvent bloquer. Un dossier en attente FIFO (assigned_at IS NULL) ne
+  // bloque pas un dossier actif — SAUF s'il est prioritaire.
   if (role === "Verificateur") {
     sql = `SELECT id, nom FROM dossier
            WHERE id_verificateur = $1
@@ -371,8 +397,9 @@ async function checkFifoOrder(userId, role, dossierId) {
            WHERE id_validateur = $1
              AND statut = 'EN_VALIDATION'
              AND id <> $2
-             AND assigned_validation_at IS NOT NULL
-           ORDER BY assigned_validation_at ASC, created_at ASC
+             AND (priorite = TRUE OR assigned_validation_at IS NOT NULL)
+           ORDER BY CASE WHEN priorite THEN 0 ELSE 1 END,
+                    assigned_validation_at ASC, created_at ASC
            LIMIT 1`;
   } else {
     return { isBlocked: false };

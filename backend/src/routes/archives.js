@@ -14,11 +14,11 @@ router.get("/", archiveCtrl.list);
 
 /*
  * Archivage Rapide
- * Admin et super_admin uniquement
+ * i_archive, Admin et super_admin
  */
 router.post(
   "/quick",
-  authorize("Admin", "super_admin"),
+  authorize("i_archive", "Admin", "super_admin"),
   upload.single("fichier"),
   archiveCtrl.quickArchive,
 );

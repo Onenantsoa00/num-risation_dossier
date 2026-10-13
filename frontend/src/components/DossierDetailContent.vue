@@ -1728,7 +1728,7 @@ const canComment = computed(() => {
 });
 
 const hideCommentSection = computed(() => {
-  return !canComment.value;
+  return auth.role === "Dispatch" || !canComment.value;
 });
 
 /** FIFO : vrai si le verificateur/validateur ne peut pas interagir */
