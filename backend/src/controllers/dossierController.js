@@ -658,9 +658,7 @@ async function create(req, res) {
     if (!req.file)
       return res
         .status(400)
-        .json({ error: "Le fichier du dossier est requis" });
-
-    // Vérifier doublon RETOUR_DISPATCH
+        .json({ error: "Le fichier du dossier est requis" });    // Vérifier doublon RETOUR_DISPATCH
     if (force_new !== "true" && force_new !== true) {
       const duplicate = await findRetourDispatchDuplicate({
         n_compte,
@@ -675,8 +673,7 @@ async function create(req, res) {
           code: "DUPLICATE_ACTIVE",
           error:
             "Un dossier identique existe déjà avec le statut " +
-            duplicate.statut +
-            ".",
+            duplicate.statut + ".",
           existing_dossier_id: duplicate.id,
           existing_dossier: duplicate,
         });

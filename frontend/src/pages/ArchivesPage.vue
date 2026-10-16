@@ -12,17 +12,42 @@
           <p class="page-sub">Dossiers validés et archivés</p>
         </div>
 
-        <!-- ARCHIVAGE RAPIDE -->
-        <q-btn
-          v-if="canQuickArchive"
-          color="deep-orange"
-          icon="bolt"
-          label="Archivage Rapide"
-          unelevated
-          @click="openQuickArchive"
-        >
-          <q-tooltip> Importer et archiver directement un dossier </q-tooltip>
-        </q-btn>
+        <div class="row q-gutter-sm items-center">
+          <!-- TÉLÉCHARGEMENT DE LA SÉLECTION -->
+          <q-btn
+            v-if="selectedIds.length > 0"
+            :color="selectedMissingCount > 0 ? 'warning' : 'positive'"
+            :icon="selectedMissingCount > 0 ? 'link_off' : 'folder_zip'"
+            :label="`Télécharger (${selectedIds.length})`"
+            unelevated
+            :loading="zipLoading"
+            @click="downloadSelection"
+          >
+            <q-tooltip>
+              <template v-if="selectedMissingCount > 0">
+                {{ selectedMissingCount }} des {{ selectedIds.length }} dossiers
+                sélectionnés n'ont plus leur fichier sur le serveur : le ZIP
+                contiendra les autres.
+              </template>
+
+              <template v-else>
+                Télécharger les fichiers des archives sélectionnées (ZIP)
+              </template>
+            </q-tooltip>
+          </q-btn>
+
+          <!-- ARCHIVAGE RAPIDE -->
+          <q-btn
+            v-if="canQuickArchive"
+            color="deep-orange"
+            icon="bolt"
+            label="Archivage Rapide"
+            unelevated
+            @click="openQuickArchive"
+          >
+            <q-tooltip> Importer et archiver directement un dossier </q-tooltip>
+          </q-btn>
+        </div>
       </div>
 
       <!-- =========================================================
@@ -97,8 +122,17 @@
         :loading="loading"
         :pagination="{ rowsPerPage: 10 }"
         :row-class="rowClass"
+        selection="multiple"
+        v-model:selected="selectedRows"
         no-data-label="Aucune archive trouvée"
       >
+        <template #header-selection>
+          <q-checkbox
+            :model-value="allSelected"
+            :indeterminate="someSelected && !allSelected"
+            @update:model-value="toggleSelectAll"
+          />
+        </template>
         <!-- DOSSIER -->
         <template #body-cell-dossier_nom="props">
           <q-td :props="props">
@@ -119,6 +153,16 @@
                   class="q-mt-xs"
                 >
                   Archivage rapide
+                </q-badge>
+
+                <q-badge
+                  v-if="props.row.fichier_disponible === false"
+                  color="negative"
+                  text-color="white"
+                  icon="link_off"
+                  class="q-mt-xs q-ml-xs"
+                >
+                  Fichier introuvable
                 </q-badge>
               </div>
             </div>
@@ -178,6 +222,25 @@
             >
               <q-tooltip> Voir le dossier </q-tooltip>
             </q-btn>
+
+            <q-btn
+              flat
+              dense
+              round
+              icon="download"
+              :color="
+                props.row.fichier_disponible === false ? 'grey-6' : 'positive'
+              "
+              @click.stop="downloadSelection([props.row])"
+            >
+              <q-tooltip>
+                {{
+                  props.row.fichier_disponible === false
+                    ? "Fichier introuvable sur le serveur"
+                    : "Télécharger ce fichier"
+                }}
+              </q-tooltip>
+            </q-btn>
           </q-td>
         </template>
       </q-table>
@@ -186,9 +249,9 @@
     <!-- =========================================================
          DIALOG ARCHIVAGE RAPIDE
     ========================================================== -->
-    <q-dialog v-model="quickDialog" maximized persistent>
+    <q-dialog v-model="quickDialog" persistent>
       <div class="quick-archive-dialog">
-        <DossierSplitLayout mode="fullscreen">
+        <DossierSplitLayout :mode="quickFullscreen ? 'fullscreen' : 'preview'">
           <!-- =====================================================
                PARTIE GAUCHE : APERÇU
           ====================================================== -->
@@ -496,6 +559,178 @@ const searchType = ref("tous");
 
 /*
  * ============================================================
+ * SÉLECTION MULTIPLE / TÉLÉCHARGEMENT
+ * ============================================================
+ */
+
+const selectedRows = ref([]);
+const zipLoading = ref(false);
+
+const selectedIds = computed(() =>
+  selectedRows.value.map((row) => row.id_dossier).filter(Boolean),
+);
+
+const allSelected = computed(
+  () =>
+    rows.value.length > 0 && selectedRows.value.length === rows.value.length,
+);
+
+const someSelected = computed(() => selectedRows.value.length > 0);
+
+/*
+ * Parmi les lignes cochées, celles dont le fichier a disparu du
+ * serveur : elles ne pourront pas figurer dans le ZIP.
+ */
+const selectedMissingCount = computed(
+  () =>
+    selectedRows.value.filter((row) => row.fichier_disponible === false).length,
+);
+
+function toggleSelectAll(checked) {
+  selectedRows.value = checked ? [...rows.value] : [];
+}
+
+/*
+ * ============================================================
+ * RAPPORT DU TÉLÉCHARGEMENT ZIP
+ * ============================================================
+ * Le serveur renvoie combien de fichiers ont été inclus dans le ZIP
+ * et le nom des dossiers dont le fichier est introuvable sur le
+ * disque : ces derniers ne peuvent pas être téléchargés et doivent
+ * donc être signalés à l'utilisateur.
+ */
+function readZipReport(response, totalSelection) {
+  const headers = response.headers || {};
+
+  const total = Number(headers["x-archives-total"]) || totalSelection;
+  const missing = Number(headers["x-archives-missing"]) || 0;
+
+  const included =
+    headers["x-archives-included"] === undefined
+      ? total - missing
+      : Number(headers["x-archives-included"]);
+
+  let missingNames = [];
+
+  const rawNames = headers["x-archives-missing-names"];
+
+  if (rawNames) {
+    try {
+      missingNames = decodeURIComponent(rawNames)
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean);
+    } catch {
+      missingNames = [];
+    }
+  }
+
+  return { total, included, missing, missingNames };
+}
+
+function notifyZipReport(report) {
+  if (report.missing > 0) {
+    const apercu = report.missingNames.slice(0, 3).join(", ");
+    const reste =
+      report.missingNames.length > 3
+        ? ` (+${report.missingNames.length - 3} autre(s))`
+        : "";
+
+    $q.notify({
+      type: "warning",
+      icon: "link_off",
+      timeout: 15000,
+      message:
+        `${report.included} fichier(s) téléchargé(s) sur ${report.total}. ` +
+        `Fichier introuvable sur le serveur pour : ${apercu}${reste}`,
+      caption: "Ces dossiers ne peuvent pas être téléchargés.",
+    });
+
+    return;
+  }
+
+  $q.notify({
+    type: "positive",
+    icon: "folder_zip",
+    message: `${report.included} fichier(s) téléchargé(s).`,
+  });
+}
+
+/*
+ * Télécharge en ZIP le fichier des archives sélectionnées
+ * (une seule ligne depuis le bouton de la ligne, ou toute la
+ * sélection depuis le bouton d'en-tête).
+ */
+async function downloadSelection(selection) {
+  const source = Array.isArray(selection) ? selection : selectedRows.value;
+
+  const ids = source.map((row) => row.id_dossier).filter(Boolean);
+
+  if (!ids.length) return;
+
+  zipLoading.value = true;
+
+  try {
+    const response = await api.post(
+      "/archives/download-zip",
+      { dossier_ids: ids },
+      { responseType: "blob" },
+    );
+
+    // Nom du fichier fourni par le serveur
+    let filename = `archives_selection_${new Date()
+      .toISOString()
+      .slice(0, 10)}.zip`;
+
+    const cd = response.headers?.["content-disposition"];
+    const match = cd && cd.match(/filename="?([^";]+)"?/);
+
+    if (match) {
+      try {
+        filename = decodeURIComponent(match[1]);
+      } catch {
+        filename = match[1];
+      }
+    }
+
+    const url = URL.createObjectURL(response.data);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = filename;
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(url);
+
+    notifyZipReport(readZipReport(response, ids.length));
+
+    selectedRows.value = [];
+  } catch (error) {
+    console.error("Erreur téléchargement archives :", error);
+
+    let message =
+      error.response?.data?.error || "Impossible de télécharger la sélection.";
+
+    if (error.response?.data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await error.response.data.text());
+        message = parsed.error || message;
+      } catch {
+        // Réponse illisible : on garde le message par défaut.
+      }
+    }
+
+    $q.notify({ type: "negative", message });
+  } finally {
+    zipLoading.value = false;
+  }
+}
+
+/*
+ * ============================================================
  * ARCHIVAGE RAPIDE
  * ============================================================
  */
@@ -507,7 +742,7 @@ const quickError = ref("");
 
 const quickFile = ref(null);
 
-const quickFullscreen = ref(true);
+const quickFullscreen = ref(false);
 
 const quickForm = reactive({
   exo_budgetaire: "",
@@ -844,6 +1079,9 @@ async function load() {
     const { data } = await api.get("/archives", { params });
 
     rows.value = data;
+
+    // Les lignes ont changé : la sélection précédente n'est plus valable.
+    selectedRows.value = [];
   } catch (error) {
     console.error("Erreur chargement archives :", error);
 
@@ -863,6 +1101,19 @@ async function load() {
  * ============================================================
  */
 
+/*
+ * Même sécurisation que le serveur (safePart) : les tirets du N° SOA
+ * deviennent des « _ ». Sans cela, le nom affiché ici différait du nom
+ * réellement enregistré.
+ */
+function safeNamePart(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 const quickNomDossier = computed(() => {
   const dateCompacte = quickForm.date_fin_dossier
     ? quickForm.date_fin_dossier.replace(/-/g, "")
@@ -881,11 +1132,7 @@ const quickNomDossier = computed(() => {
     dateCompacte,
     im,
   ]
-    .map((value) =>
-      String(value || "")
-        .trim()
-        .replace(/\s+/g, "_"),
-    )
+    .map(safeNamePart)
     .filter(Boolean)
     .join("_");
 });
@@ -927,6 +1174,7 @@ function closeQuickArchive() {
 function resetQuickArchive() {
   quickFile.value = null;
   quickError.value = "";
+  quickFullscreen.value = false;
 
   Object.assign(quickForm, {
     exo_budgetaire: "",
@@ -1109,20 +1357,61 @@ onMounted(() => {
    DIALOG ARCHIVAGE RAPIDE
 ========================================================= */
 
+/*
+ * Fenêtre NORMALE (même esprit que la page d'import du
+ * Dispatch) : aperçu à gauche, formulaire à droite.
+ * Le mode plein écran reste disponible via le bouton
+ * "Plein écran" de l'aperçu.
+ */
 .quick-archive-dialog {
-  width: 100vw;
-  height: 100vh;
-  background: #111;
+  width: min(1800px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: 92vh;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: #f5f7fa;
+  padding: 18px 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+
+@media (min-width: 1001px) {
+  .quick-archive-dialog :deep(.dossier-workspace--preview) {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
+  }
 }
 
 /*
- * La zone d'action est volontairement placée en bas
- * grâce au mode fullscreen de DossierSplitLayout.
+ * La zone d'action est un panneau normal (le mode
+ * plein écran de DossierSplitLayout la place en bas
+ * lorsque l'utilisateur l'active).
  */
 .quick-action-panel {
   width: 100%;
   background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
   padding: 18px 22px;
+}
+
+/*
+ * Aperçu : hauteur adaptée à la fenêtre (et non 100vh).
+ */
+.quick-archive-dialog
+  :deep(.dossier-workspace--preview .dossier-workspace__left) {
+  min-height: 0;
+}
+
+.quick-archive-dialog
+  :deep(.dossier-workspace--preview .dossier-workspace__left .file-preview) {
+  height: 62vh;
+  min-height: 420px;
+}
+
+.quick-archive-dialog
+  :deep(.dossier-workspace--preview .dossier-workspace__right) {
+  position: static;
+  max-height: none;
+  overflow: visible;
 }
 
 /* =========================================================

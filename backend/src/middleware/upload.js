@@ -21,4 +21,27 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-module.exports = { upload, uploadDir };
+/**
+ * Supprime le fichier temporaire déposé par Multer lorsque la requête est
+ * refusée (statut >= 400).
+ *
+ * Sans ce nettoyage, tout import rejeté après l'upload (doublon, champ
+ * obligatoire manquant, droits insuffisants, congé…) laisse le fichier
+ * sur le disque : les tests ont relevé 74 fichiers orphelins sur 160.
+ * Si le contrôleur a déjà renommé le fichier, ce nettoyage ne fait rien.
+ */
+function cleanupUploadOnFailure(req, res, next) {
+  res.on("finish", () => {
+    const nom = req.file?.filename;
+    if (!nom || res.statusCode < 400) return;
+
+    const cible = path.join(uploadDir, nom);
+    if (fs.existsSync(cible)) {
+      fs.promises.unlink(cible).catch(() => {});
+    }
+  });
+
+  next();
+}
+
+module.exports = { upload, uploadDir, cleanupUploadOnFailure };

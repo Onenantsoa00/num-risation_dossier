@@ -1,7 +1,10 @@
 const express = require("express");
 const archiveCtrl = require("../controllers/archiveController");
 const { authenticate, authorize } = require("../middleware/auth");
-const { upload } = require("../middleware/upload");
+const {
+  upload,
+  cleanupUploadOnFailure,
+} = require("../middleware/upload");
 
 const router = express.Router();
 
@@ -20,8 +23,14 @@ router.post(
   "/quick",
   authorize("i_archive", "Admin", "super_admin"),
   upload.single("fichier"),
+  cleanupUploadOnFailure,
   archiveCtrl.quickArchive,
 );
+
+/*
+ * Téléchargement multiple (ZIP) des archives sélectionnées
+ */
+router.post("/download-zip", archiveCtrl.downloadSelectionZip);
 
 /*
  * Archivage définitif

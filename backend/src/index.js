@@ -124,6 +124,20 @@ app.use(
     },
 
     credentials: true,
+
+    /*
+     * En développement, le frontend tourne sur un autre port que
+     * l'API : sans cette liste, le navigateur masque ces en-têtes
+     * au code JavaScript et l'interface ne peut pas indiquer le nom
+     * du fichier ZIP ni les dossiers sans fichier.
+     */
+    exposedHeaders: [
+      "Content-Disposition",
+      "X-Archives-Total",
+      "X-Archives-Included",
+      "X-Archives-Missing",
+      "X-Archives-Missing-Names",
+    ],
   }),
 );
 

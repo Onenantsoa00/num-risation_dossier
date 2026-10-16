@@ -1,7 +1,10 @@
 const express = require("express");
 const dossierCtrl = require("../controllers/dossierController");
 const { authenticate, authorize } = require("../middleware/auth");
-const { upload } = require("../middleware/upload");
+const {
+  upload,
+  cleanupUploadOnFailure,
+} = require("../middleware/upload");
 
 const router = express.Router();
 
@@ -19,12 +22,14 @@ router.post(
   "/",
   authorize("Dispatch", "Admin", "super_admin"),
   upload.single("fichier"),
+  cleanupUploadOnFailure,
   dossierCtrl.create,
 );
 router.post(
   "/:id/confirm-reimport",
   authorize("Dispatch", "Admin", "super_admin"),
   upload.single("fichier"),
+  cleanupUploadOnFailure,
   dossierCtrl.confirmReimport,
 );
 router.post(
@@ -36,12 +41,14 @@ router.post(
   "/:id/reupload",
   authorize("Dispatch", "Admin", "super_admin"),
   upload.single("fichier"),
+  cleanupUploadOnFailure,
   dossierCtrl.reuploadVersion,
 );
 router.post(
   "/:id/replace-file",
   authorize("Verificateur", "Validateur"),
   upload.single("fichier"),
+  cleanupUploadOnFailure,
   dossierCtrl.replaceFile,
 );
 router.get("/:id", dossierCtrl.getOne);

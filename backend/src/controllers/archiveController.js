@@ -1,9 +1,112 @@
 // backend/src/controllers/archiveController.js
 const fs = require("fs");
 const path = require("path");
+const archiver = require("archiver");
 const db = require("../config/db");
 const { uploadDir } = require("../middleware/upload");
 const { audit } = require("../services/helpers");
+
+/*
+ * Rôles autorisés à consulter les archives.
+ * (Partagé par la liste et le téléchargement multiple.)
+ */
+const ARCHIVE_ROLES = [
+  "Dispatch",
+  "Verificateur",
+  "Validateur",
+  "i_archive",
+  "Admin",
+  "super_admin",
+];
+
+/*
+ * Nom de fichier sûr pour une entrée de ZIP.
+ */
+function safeZipEntryName(nom, id) {
+  return (
+    String(nom || `dossier_${id}`)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .replace(/^[-_.]+|[-_.]+$/g, "")
+      .trim() || `dossier_${id}`
+  );
+}
+/*
+ * ============================================================
+ * FICHIERS PRÉSENTS SUR LE DISQUE
+ * ============================================================
+ * La liste du dossier uploads est mémorisée quelques secondes :
+ * on évite ainsi une lecture disque par ligne d'archive (le
+ * serveur de production est un HDD).
+ */
+const UPLOAD_FILES_TTL_MS = 10_000;
+
+let uploadFilesCache = { at: 0, files: new Map() };
+
+function listUploadFiles() {
+  const now = Date.now();
+
+  if (now - uploadFilesCache.at < UPLOAD_FILES_TTL_MS) {
+    return uploadFilesCache.files;
+  }
+
+  const files = new Map();
+
+  try {
+    for (const name of fs.readdirSync(uploadDir)) {
+      files.set(name.toLowerCase(), name);
+    }
+  } catch {
+    /* dossier illisible : aucune archive ne sera exportée */
+  }
+
+  uploadFilesCache = { at: now, files };
+
+  return files;
+}
+
+/*
+ * Retourne le chemin du fichier d'un dossier archivé, ou null s'il
+ * est introuvable sur le disque.
+ *
+ * 1. le fichier enregistré en base pour ce dossier ;
+ * 2. à défaut, un fichier du même nom suffixé par l'application
+ *    pour les doublons (« nom(2).pdf », « nom(3).pdf »…).
+ *
+ * Si aucun des deux n'existe, le dossier ne peut pas être
+ * téléchargé : l'appelant doit le signaler à l'utilisateur.
+ */
+function resolveDossierFilePath(nom, fichierOriginal) {
+  const files = listUploadFiles();
+  const original = String(fichierOriginal || "").trim();
+
+  if (original) {
+    const known = files.get(original.toLowerCase());
+
+    if (known) return path.join(uploadDir, known);
+  }
+
+  const base = String(nom || "").trim();
+
+  if (!base) return null;
+
+  const extension = path.extname(original);
+  const candidates = [`${base}${extension}`];
+
+  for (let suffix = 2; suffix <= 9; suffix += 1) {
+    candidates.push(`${base}(${suffix})${extension}`);
+  }
+
+  for (const candidate of candidates) {
+    const known = files.get(candidate.toLowerCase());
+
+    if (known) return path.join(uploadDir, known);
+  }
+
+  return null;
+}
+
 async function list(req, res) {
   try {
     const { q, type } = req.query;
@@ -45,16 +148,7 @@ async function list(req, res) {
     // 1. DROITS D'ACCÈS
     // ============================================================
 
-    const archiveRoles = [
-      "Dispatch",
-      "Verificateur",
-      "Validateur",
-      "i_archive",
-      "Admin",
-      "super_admin",
-    ];
-
-    if (!archiveRoles.includes(req.user.role)) {
+    if (!ARCHIVE_ROLES.includes(req.user.role)) {
       return res.json([]);
     }
 
@@ -160,7 +254,20 @@ async function list(req, res) {
 
     const { rows } = await db.query(sql, params);
 
-    res.json(rows);
+    /*
+     * Le fichier peut manquer sur le disque (ancienne archive dont
+     * le fichier a été supprimé, dossier importé puis retiré…).
+     * On le signale pour que l'interface prévienne l'utilisateur
+     * avant un téléchargement vide.
+     */
+    res.json(
+      rows.map((row) => ({
+        ...row,
+        fichier_disponible:
+          resolveDossierFilePath(row.dossier_nom, row.fichier_original) !==
+          null,
+      })),
+    );
   } catch (err) {
     console.error("Erreur liste archives :", err);
 
@@ -365,6 +472,18 @@ async function archiveDossier(req, res) {
         nouveauNomFichier,
         dossierId,
       ],
+    );
+
+    // Le fichier vient d'être renommé : la version courante doit pointer sur
+    // le nouveau nom, sinon l'aperçu des versions (/preview-version) renvoie
+    // « Fichier introuvable » après l'archivage.
+    await db.query(
+      `
+    UPDATE dossier_version
+    SET fichier_original = $1
+    WHERE id_dossier = $2 AND fichier_original = $3
+  `,
+      [nouveauNomFichier, dossierId, dossier.fichier_original],
     );
 
     await db.query(
@@ -673,6 +792,22 @@ async function quickArchive(req, res) {
     const dossier = dossierResult.rows[0];
 
     // ==========================================================
+    // 13bis. Version initiale du dossier
+    // ==========================================================
+
+    // Comme à l'import Dispatch : le dossier doit avoir sa ligne de version,
+    // sinon l'historique des versions reste vide pour un archivage rapide.
+
+    await db.query(
+      `
+        INSERT INTO dossier_version (id_dossier, version, fichier_original, est_actuelle)
+        VALUES ($1, 1, $2, TRUE)
+        ON CONFLICT (id_dossier, version) DO NOTHING
+      `,
+      [dossier.id, nouveauNomFichier],
+    );
+
+    // ==========================================================
     // 14. Historique du traitement
     // ==========================================================
 
@@ -775,8 +910,186 @@ async function quickArchive(req, res) {
   }
 }
 
+/*
+ * ============================================================
+ * TÉLÉCHARGEMENT MULTIPLE (ZIP)
+ * ============================================================
+ * L'utilisateur sélectionne plusieurs lignes dans les archives :
+ * on renvoie un ZIP contenant le fichier de chaque dossier archivé
+ * sélectionné. Seuls les dossiers réellement archivés sont inclus.
+ */
+async function downloadSelectionZip(req, res) {
+  try {
+    if (!ARCHIVE_ROLES.includes(req.user.role)) {
+      return res.status(403).json({
+        error: "Accès refusé à l'archivage.",
+      });
+    }
+
+    const ids = [
+      ...new Set(
+        (req.body?.dossier_ids || [])
+          .map((n) => Number(n))
+          .filter((n) => Number.isInteger(n) && n > 0),
+      ),
+    ];
+
+    if (ids.length === 0) {
+      return res.status(400).json({ error: "Aucun dossier sélectionné." });
+    }
+
+    if (ids.length > 100) {
+      return res.status(400).json({
+        error: `Maximum 100 dossiers par téléchargement (${ids.length} sélectionnés) : décochez ${ids.length - 100} dossier(s) ou téléchargez la sélection en plusieurs fois.`,
+      });
+    }
+
+    const { rows } = await db.query(
+      `
+        SELECT d.id, d.nom, d.fichier_original
+        FROM archive a
+        JOIN dossier d ON d.id = a.id_dossier
+        WHERE d.id = ANY($1::int[])
+        ORDER BY d.nom ASC
+      `,
+      [ids],
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({
+        error: "Aucune archive éligible dans la sélection.",
+      });
+    }
+
+    /*
+     * Répartition entre les dossiers dont le fichier est présent sur
+     * le disque et ceux dont le fichier a disparu : un dossier sans
+     * fichier ne peut pas être téléchargé, il est donc signalé
+     * explicitement (message d'erreur ou en-têtes du ZIP) au lieu
+     * d'être oublié en silence.
+     */
+    const labelDossier = (dossier) => dossier.nom || `dossier #${dossier.id}`;
+
+    const archives = [];
+    const manquants = [];
+
+    for (const dossier of rows) {
+      const source = resolveDossierFilePath(
+        dossier.nom,
+        dossier.fichier_original,
+      );
+
+      if (source) {
+        archives.push({ dossier, source });
+      } else {
+        manquants.push(dossier);
+      }
+    }
+
+    if (archives.length === 0) {
+      return res.status(400).json({
+        error:
+          `${rows.length} dossier(s) sélectionné(s) mais aucun fichier ` +
+          `disponible sur le serveur : ${manquants.map(labelDossier).join(", ")}.`,
+        dossiers_manquants: manquants.map(labelDossier),
+      });
+    }
+
+    await audit({
+      id_user: req.user.id,
+      action: "DOWNLOAD_ARCHIVES_ZIP",
+      table_name: "archive",
+      record_id: null,
+      details: {
+        demandes: ids.length,
+        inclus: archives.length,
+        manquants: manquants.map(labelDossier),
+      },
+      ip_address: req.ip,
+    });
+
+    const dateZip = new Date().toISOString().slice(0, 10);
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(
+        `archives_selection_${dateZip}.zip`,
+      )}"`,
+    );
+    res.setHeader("Cache-Control", "no-store");
+
+    /*
+     * Rapport de téléchargement lu par l'interface
+     * (voir exposedHeaders dans backend/src/index.js) : il indique
+     * combien de fichiers ont été inclus et lesquels manquent.
+     */
+    res.setHeader("X-Archives-Total", String(rows.length));
+    res.setHeader("X-Archives-Included", String(archives.length));
+    res.setHeader("X-Archives-Missing", String(manquants.length));
+
+    if (manquants.length) {
+      res.setHeader(
+        "X-Archives-Missing-Names",
+        encodeURIComponent(
+          manquants.map(labelDossier).join(", ").slice(0, 1500),
+        ),
+      );
+    }
+
+    const zip = archiver("zip", { zlib: { level: 9 } });
+
+    zip.on("error", (err) => {
+      console.error("Erreur archiver ZIP archives :", err);
+
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erreur téléchargement ZIP" });
+      }
+    });
+
+    zip.pipe(res);
+
+    const usedNames = new Set();
+
+    for (const { dossier, source } of archives) {
+      const extension = path.extname(source);
+      const base = safeZipEntryName(dossier.nom, dossier.id);
+
+      let entryName = `${base}${extension}`;
+      let suffix = 2;
+
+      while (usedNames.has(entryName.toLowerCase())) {
+        entryName = `${base}(${suffix++})${extension}`;
+      }
+
+      usedNames.add(entryName.toLowerCase());
+
+      zip.file(source, { name: entryName });
+    }
+
+    if (manquants.length) {
+      console.warn(
+        `Fichiers absents pour l'export ZIP archives : ${manquants
+          .map(labelDossier)
+          .join(", ")}`,
+      );
+    }
+
+    await zip.finalize();
+  } catch (err) {
+    console.error("Erreur downloadSelectionZip :", err);
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Erreur lors du téléchargement des archives",
+      });
+    }
+  }
+}
+
 module.exports = {
   list,
   archiveDossier,
   quickArchive,
+  downloadSelectionZip,
 };

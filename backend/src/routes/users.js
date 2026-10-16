@@ -1,7 +1,10 @@
 const express = require("express");
 const userCtrl = require("../controllers/userController");
 const { authenticate, authorize } = require("../middleware/auth");
-const { upload } = require("../middleware/upload");
+const {
+  upload,
+  cleanupUploadOnFailure,
+} = require("../middleware/upload");
 
 const router = express.Router();
 
@@ -17,6 +20,7 @@ router.post(
   authenticate,
   authorize("Admin"),
   upload.single("image"),
+  cleanupUploadOnFailure,
   userCtrl.createUser,
 );
 
@@ -25,6 +29,7 @@ router.put(
   "/profile",
   authenticate,
   upload.single("image"),
+  cleanupUploadOnFailure,
   userCtrl.updateProfile,
 );
 

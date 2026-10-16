@@ -42,10 +42,18 @@ async function create(req, res) {
       return res.status(400).json({ error: "Le libellé est requis." });
     }
 
+    // Le format YYYY-MM-DD est requis : une date libre (ex. « not-a-date »)
+    // provoquait une erreur SQL 500 au lieu d'un refus explicite.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date_ferie).trim())) {
+      return res.status(400).json({
+        error: "La date doit être au format YYYY-MM-DD.",
+      });
+    }
+
     // Vérifier doublon
     const exists = await db.query(
       `SELECT id FROM jour_ferier WHERE date_ferie = $1`,
-      [date_ferie]
+      [String(date_ferie).trim()]
     );
     if (exists.rows.length) {
       return res.status(409).json({ error: "Cette date est déjà un jour férié." });
@@ -55,7 +63,7 @@ async function create(req, res) {
       `INSERT INTO jour_ferier (date_ferie, libelle, created_by)
        VALUES ($1, $2, $3)
        RETURNING id, date_ferie, libelle, created_at`,
-      [date_ferie, libelle.trim(), req.user.id]
+      [String(date_ferie).trim(), libelle.trim(), req.user.id]
     );
 
     invalidateJourFeriesCache();
